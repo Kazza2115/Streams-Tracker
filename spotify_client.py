@@ -134,9 +134,12 @@ class SpotifyClient:
             "operationName": OPERATIONS.get(op_key, op_key),
             "extensions": {"persistedQuery": {"version": 1, "sha256Hash": sha}},
         }
-        headers = {"Authorization": f"Bearer {self._access_token()}", "Content-Type": "application/json"}
+        tok = self._access_token().strip()
+        if tok.lower().startswith("bearer "):
+            tok = tok[7:].strip()           # tolerate a pasted "Bearer …" value
+        headers = {"Authorization": f"Bearer {tok}", "Content-Type": "application/json", "Accept-Language": "en"}
         if self._client_token:
-            headers["client-token"] = self._client_token
+            headers["client-token"] = self._client_token.strip()
         try:
             r = self._session.post(PATHFINDER_URL, data=json.dumps(body), headers=headers, timeout=25)
         except requests.RequestException as e:
@@ -148,8 +151,9 @@ class SpotifyClient:
             )
         if r.status_code in (401, 403):
             raise SpotifyError(
-                f"Pathfinder HTTP {r.status_code} — token/client-token rejected. v2 "
-                "may require a valid SP_CLIENT_TOKEN header."
+                f"Pathfinder HTTP {r.status_code} — auth rejected. The bearer token has "
+                "likely expired (re-capture a fresh SP_ACCESS_TOKEN), or SP_CLIENT_TOKEN "
+                "is missing/invalid. Re-capture both and test within a few minutes."
             )
         if r.status_code != 200:
             raise SpotifyError(f"Pathfinder returned HTTP {r.status_code} for {op_key!r}.")
