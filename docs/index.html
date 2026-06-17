@@ -3,166 +3,109 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>Stream Consolidator — Demo</title>
+  <title>Stream City — Stream Consolidator Demo</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link href="https://fonts.googleapis.com/css2?family=Press+Start+2P&display=swap" rel="stylesheet">
   <style>
-    :root { color-scheme: light dark; }
-    body { font-family: system-ui, -apple-system, sans-serif; max-width: 760px; margin: 3rem auto; padding: 0 1rem; line-height: 1.45; }
-    h1 { font-size: 1.4rem; margin-bottom: .2rem; }
-    .demo-banner { background: #e7f0ff; color: #143a7a; padding: .7rem .9rem; border-radius: 8px; font-size: .9rem; margin: 1rem 0; }
-    form { display: flex; gap: .5rem; margin: 1.2rem 0; }
-    input[type=text] { flex: 1; padding: .6rem .8rem; font-size: 1rem; border: 1px solid #888; border-radius: 8px; }
-    button { padding: .6rem 1.1rem; font-size: 1rem; border: 0; border-radius: 8px; background: #1db954; color: #fff; cursor: pointer; }
-    .examples { font-size: .85rem; }
-    .examples a { color: #1db954; cursor: pointer; text-decoration: underline; }
-    .total { font-size: 2.2rem; font-weight: 700; margin: .2rem 0; }
-    .muted { color: #888; font-size: .9rem; }
-    .error { background: #fde7e7; color: #7a1212; padding: .8rem 1rem; border-radius: 8px; }
-    .note { background: #fff6d6; color: #5b4a00; padding: .5rem .8rem; border-radius: 8px; font-size: .9rem; margin: .4rem 0; }
-    table { width: 100%; border-collapse: collapse; margin-top: 1rem; font-size: .92rem; }
-    th, td { text-align: left; padding: .4rem .5rem; border-bottom: 1px solid #8884; }
+    :root { --neon: #2bd9c0; --pink: #ff7eb6; }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0; padding: 0 1rem 3rem; color: #e8e6f5;
+      background: #0e0b1e radial-gradient(circle at 50% -10%, #25204a 0%, #0e0b1e 60%);
+      font-family: "Courier New", monospace; line-height: 1.5; min-height: 100vh;
+    }
+    .wrap { max-width: 880px; margin: 0 auto; }
+    h1 {
+      font-family: "Press Start 2P", monospace; font-size: 1.1rem; letter-spacing: 1px;
+      color: var(--neon); text-shadow: 2px 2px 0 #1b1640, 0 0 12px rgba(43,217,192,.4);
+      margin: 1.6rem 0 .3rem;
+    }
+    .tag { color: #b9b4e0; font-size: .9rem; margin: 0 0 1rem; }
+    .demo-banner {
+      background: #19143a; border: 2px solid #3a2f6b; color: #d7d2ff;
+      padding: .7rem .9rem; border-radius: 6px; font-size: .85rem; margin: 1rem 0;
+    }
+    form { display: flex; gap: .5rem; margin: 1rem 0 .5rem; }
+    input[type=text] {
+      flex: 1; padding: .65rem .8rem; font-size: 1rem; color: #fff;
+      background: #120e2b; border: 2px solid #3a2f6b; border-radius: 6px; font-family: "Courier New", monospace;
+    }
+    input[type=text]:focus { outline: none; border-color: var(--neon); }
+    button {
+      padding: .65rem 1rem; font-family: "Press Start 2P", monospace; font-size: .7rem;
+      border: 0; border-radius: 6px; background: var(--neon); color: #06231f; cursor: pointer;
+      box-shadow: 0 3px 0 #138a7c;
+    }
+    button:active { transform: translateY(2px); box-shadow: 0 1px 0 #138a7c; }
+    .examples { font-size: .82rem; color: #b9b4e0; margin: .2rem 0 1rem; }
+    .examples a { color: var(--neon); cursor: pointer; text-decoration: none; border-bottom: 1px dotted; }
+
+    .stage { position: relative; border: 3px solid #3a2f6b; border-radius: 8px; overflow: hidden; box-shadow: 0 8px 30px rgba(0,0,0,.5); }
+    #city { display: block; width: 100%; height: 420px; image-rendering: pixelated; }
+    /* CRT scanlines */
+    .stage::after {
+      content: ""; position: absolute; inset: 0; pointer-events: none;
+      background: repeating-linear-gradient(rgba(0,0,0,0) 0 2px, rgba(0,0,0,.12) 2px 3px);
+      mix-blend-mode: multiply;
+    }
+    #tip {
+      position: fixed; display: none; z-index: 10; pointer-events: none;
+      background: #120e2b; border: 2px solid var(--neon); color: #fff;
+      padding: .4rem .6rem; border-radius: 6px; font-size: .82rem; max-width: 240px;
+    }
+
+    .scoreboard {
+      margin-top: 1.2rem; background: #120e2b; border: 2px solid #3a2f6b; border-radius: 8px;
+      padding: 1rem 1.2rem; text-align: center;
+    }
+    .sb-label { font-family: "Press Start 2P", monospace; font-size: .6rem; color: var(--pink); letter-spacing: 2px; }
+    .sb-total { font-family: "Press Start 2P", monospace; font-size: 1.5rem; color: var(--neon); margin: .5rem 0; text-shadow: 0 0 12px rgba(43,217,192,.5); word-break: break-all; }
+    .sb-sub { color: #b9b4e0; font-size: .82rem; }
+
+    .note { background: #2a2410; border: 1px solid #6b5b1f; color: #ffe39a; padding: .5rem .8rem; border-radius: 6px; font-size: .85rem; margin: .5rem 0; }
+    .error { background: #2a1018; border: 2px solid #7a1e34; color: #ffb3c4; padding: .8rem 1rem; border-radius: 6px; }
+    .muted { color: #b9b4e0; font-size: .85rem; }
+    details { margin-top: .6rem; }
+    summary { cursor: pointer; color: var(--neon); font-size: .85rem; }
+    table { width: 100%; border-collapse: collapse; margin-top: .6rem; font-size: .88rem; }
+    th, td { text-align: left; padding: .4rem .5rem; border-bottom: 1px solid #2e2750; }
     td.num, th.num { text-align: right; font-variant-numeric: tabular-nums; }
-    .na { color: #b00; }
-    footer { margin-top: 2.5rem; font-size: .82rem; }
-    footer a { color: #1db954; }
+    .na { color: #ff8a8a; }
+    footer { margin-top: 2rem; font-size: .78rem; color: #8a85b0; }
+    footer a { color: var(--neon); }
   </style>
 </head>
 <body>
-  <h1>🎧 Stream Consolidator</h1>
-  <p class="muted">Paste a Spotify playlist link to get the combined play count of its tracks.</p>
+  <div class="wrap">
+    <h1>🌆 STREAM CITY</h1>
+    <p class="tag">Paste a Spotify playlist — each track becomes a building (taller = more streams), each artist a citizen.</p>
 
-  <div class="demo-banner">
-    🧪 <strong>Demo mode (static).</strong> This page runs entirely in your browser with
-    <strong>mock data</strong> — any valid playlist link returns the same sample playlist.
-    Real Spotify counts require the Flask server app (browsers can't reach Spotify's internal endpoint).
+    <div class="demo-banner">
+      🧪 <strong>Demo mode (static).</strong> Runs in your browser with <strong>mock data</strong>:
+      any valid playlist link builds the same sample city. Real Spotify counts need the Flask server app.
+    </div>
+
+    <form id="form">
+      <input type="text" id="link" placeholder="https://open.spotify.com/playlist/… or spotify:playlist:…" autofocus>
+      <button type="submit">BUILD CITY</button>
+    </form>
+    <p class="examples">
+      Try:
+      <a data-fill="https://open.spotify.com/playlist/37i9dQZF1DXcBWIGoYBM5M">playlist link</a> ·
+      <a data-fill="spotify:playlist:37i9dQZF1DXcBWIGoYBM5M">playlist URI</a> ·
+      <a data-fill="spotify:album:1DFixLWuPkv3KT3TnV35m3">album (unsupported)</a>
+    </p>
+
+    <div class="stage"><canvas id="city"></canvas></div>
+    <div id="tip"></div>
+    <div id="out"></div>
+
+    <footer>
+      Pixel-city demo of the <a href="https://github.com/Kazza2115/Streams-Tracker">Stream Consolidator</a>.
+      Hover a building for its exact count.
+    </footer>
   </div>
 
-  <form id="form">
-    <input type="text" id="link" placeholder="https://open.spotify.com/playlist/… or spotify:playlist:…" autofocus>
-    <button type="submit">Consolidate</button>
-  </form>
-  <p class="examples muted">
-    Try:
-    <a data-fill="https://open.spotify.com/playlist/37i9dQZF1DXcBWIGoYBM5M">a playlist link</a> ·
-    <a data-fill="spotify:playlist:37i9dQZF1DXcBWIGoYBM5M">a playlist URI</a> ·
-    <a data-fill="spotify:album:1DFixLWuPkv3KT3TnV35m3">an album (not supported in phase 1)</a>
-  </p>
-
-  <div id="out"></div>
-
-  <footer class="muted">
-    Mock demo of the <a href="https://github.com/Kazza2115/Streams-Tracker">Stream Consolidator</a>.
-    The real app sums each track's all-time Spotify play count server-side.
-  </footer>
-
-  <script>
-    // --- ported from parsing.py -------------------------------------------
-    const VALID_TYPES = new Set(["playlist", "album", "artist", "track"]);
-
-    function cleanId(v) { return v.split("?")[0].split("#")[0]; }
-
-    function parseSpotifyInput(raw) {
-      if (!raw || !raw.trim()) throw new Error("Empty input — paste a Spotify link or URI.");
-      let text = raw.trim();
-      if (text.startsWith("spotify:")) {
-        const parts = text.split(":");
-        if (parts.length >= 3 && VALID_TYPES.has(parts[1]) && parts[2]) {
-          return { type: parts[1], id: cleanId(parts[2]) };
-        }
-        throw new Error("Unrecognized Spotify URI: " + raw);
-      }
-      if (text.includes("open.spotify.com")) {
-        if (!text.includes("://")) text = "https://" + text;
-        let path;
-        try { path = new URL(text).pathname; } catch (e) { throw new Error("Unrecognized Spotify URL: " + raw); }
-        let segments = path.split("/").filter(Boolean);
-        if (segments.length && segments[0].startsWith("intl-")) segments = segments.slice(1);
-        if (segments.length >= 2 && VALID_TYPES.has(segments[0]) && segments[1]) {
-          return { type: segments[0], id: cleanId(segments[1]) };
-        }
-        throw new Error("Unrecognized Spotify URL: " + raw);
-      }
-      throw new Error("Not a Spotify link or URI. Expected something like " +
-        "https://open.spotify.com/playlist/… or spotify:playlist:…");
-    }
-
-    // --- ported from providers.py (MockProvider + aggregate_tracks) -------
-    const MOCK_TRACKS = [
-      { name: "Midnight City", artists: "M83", play_count: 612004511 },
-      { name: "Outro", artists: "M83", play_count: 158223004 },
-      { name: "Reckoner", artists: "Radiohead", play_count: 142991233 },
-      { name: "Nude", artists: "Radiohead", play_count: 121044872 },
-      { name: "Local Demo Take", artists: "Unknown", play_count: null },
-    ];
-
-    function aggregate(name, type, source, tracks) {
-      const counted = tracks.filter(t => t.play_count != null);
-      const missing = tracks.filter(t => t.play_count == null);
-      const total = counted.length ? counted.reduce((s, t) => s + t.play_count, 0) : null;
-      const notes = [];
-      if (missing.length) {
-        notes.push(`${missing.length} of ${tracks.length} track(s) had no available count and are excluded from the total.`);
-      }
-      return { entity_name: name, entity_type: type, source, total_streams: total,
-               tracks, tracks_counted: counted.length, tracks_missing: missing.length,
-               partial: missing.length > 0, notes };
-    }
-
-    function getStreams(type, id) {
-      if (type === "playlist") {
-        return aggregate("Roster Sampler (demo)", "playlist", "mock", MOCK_TRACKS.slice());
-      }
-      throw new Error(`Demo only serves playlists in phase 1 (got ${type}).`);
-    }
-
-    // --- rendering --------------------------------------------------------
-    const fmt = n => Number(n).toLocaleString("en-US");
-    const esc = s => String(s).replace(/[&<>"]/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
-
-    function render(result) {
-      const rows = result.tracks.map((t, i) => `
-        <tr>
-          <td>${i + 1}</td>
-          <td>${esc(t.name)}</td>
-          <td>${esc(t.artists)}</td>
-          <td class="num">${t.play_count != null ? fmt(t.play_count) : '<span class="na">n/a</span>'}</td>
-        </tr>`).join("");
-
-      return `
-        <h2>${esc(result.entity_name)} <span class="muted">(${esc(result.entity_type)})</span></h2>
-        ${result.total_streams != null
-          ? `<div class="total">${fmt(result.total_streams)} <span class="muted">streams</span></div>`
-          : `<div class="total na">No count available</div>`}
-        <p class="muted">${result.tracks_counted} track(s) counted${
-          result.tracks_missing ? `, ${result.tracks_missing} without a count` : ""} · source: ${esc(result.source)}</p>
-        ${result.notes.map(n => `<div class="note">${esc(n)}</div>`).join("")}
-        <p class="muted">This is the combined all-time play count of the tracks — not the
-          number of streams generated by the playlist itself (Spotify does not expose that).</p>
-        <table>
-          <thead><tr><th>#</th><th>Track</th><th>Artist</th><th class="num">Plays</th></tr></thead>
-          <tbody>${rows}</tbody>
-        </table>`;
-    }
-
-    const out = document.getElementById("out");
-    const input = document.getElementById("link");
-
-    document.getElementById("form").addEventListener("submit", e => {
-      e.preventDefault();
-      try {
-        const { type, id } = parseSpotifyInput(input.value);
-        out.innerHTML = render(getStreams(type, id));
-      } catch (err) {
-        out.innerHTML = `<div class="error">${esc(err.message)}</div>`;
-      }
-    });
-
-    document.querySelectorAll("[data-fill]").forEach(a => {
-      a.addEventListener("click", e => {
-        e.preventDefault();
-        input.value = a.getAttribute("data-fill");
-        input.focus();
-      });
-    });
-  </script>
+  <script src="city.js"></script>
 </body>
 </html>

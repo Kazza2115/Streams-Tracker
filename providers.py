@@ -103,15 +103,17 @@ class MockProvider(StreamProvider):
 
     name = "mock"
 
-    # A small, realistic playlist: a few tracks across two albums, plus one
-    # track with no count (e.g. a local/unavailable item) to exercise the
-    # partial-total path.
+    # A small, varied playlist: a couple of huge hits (the "skyscrapers"), some
+    # mid-tier tracks, and one track with no count (e.g. a local/unavailable
+    # item) to exercise the partial-total path.
     _PLAYLIST_TRACKS = [
-        TrackCount("Midnight City", "M83", 612_004_511, "t1", "alb_a"),
-        TrackCount("Outro", "M83", 158_223_004, "t2", "alb_a"),
-        TrackCount("Reckoner", "Radiohead", 142_991_233, "t3", "alb_b"),
-        TrackCount("Nude", "Radiohead", 121_044_872, "t4", "alb_b"),
-        TrackCount("Local Demo Take", "Unknown", None, "t5", None),
+        TrackCount("One Dance", "Drake", 2_950_000_000, "t1", "alb_a"),
+        TrackCount("The Less I Know the Better", "Tame Impala", 2_100_000_000, "t2", "alb_b"),
+        TrackCount("Midnight City", "M83", 612_004_511, "t3", "alb_c"),
+        TrackCount("Outro", "M83", 158_223_004, "t4", "alb_c"),
+        TrackCount("Reckoner", "Radiohead", 142_991_233, "t5", "alb_d"),
+        TrackCount("Nude", "Radiohead", 121_044_872, "t6", "alb_d"),
+        TrackCount("Local Demo Take", "Unknown", None, "t7", None),
     ]
 
     def get_streams(self, entity_type: str, entity_id: str) -> StreamResult:
