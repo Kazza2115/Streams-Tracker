@@ -33,6 +33,7 @@ import os
 import re
 import struct
 import time
+from email.utils import parsedate_to_datetime
 from dataclasses import dataclass
 from typing import Optional
 
@@ -47,8 +48,14 @@ PATHFINDER_URL = os.getenv("SP_PATHFINDER_URL", "https://api-partner.spotify.com
 CLIENTTOKEN_URL = os.getenv("SP_CLIENTTOKEN_URL", "https://clienttoken.spotify.com/v1/clienttoken")
 CLIENT_ID = os.getenv("SP_CLIENT_ID", "d8a5ed958d274c2e8ee717e6a4b0971d")
 CLIENT_VERSION = os.getenv("SP_CLIENT_VERSION", "1.2.93.309.ga193fd34")
-TOTP_VER = os.getenv("SP_TOTP_VER", "5")
-TOTP_CIPHER = os.getenv("SP_TOTP_CIPHER", "12,56,76,33,88,44,88,33,78,78,11,66,22,22,55,69,54")
+# TOTP candidates (version, cipher), newest first; tried in order. Override a
+# single one via SP_TOTP_VER + SP_TOTP_CIPHER when Spotify rotates the secret.
+_TOTP_CANDIDATES = [
+    ("14", "62,54,109,83,107,77,41,103,45,93,114,38,41,97,64,51,95,94,95,94"),
+    ("13", "59,92,64,70,99,78,117,75,99,103,116,67,103,51,87,63,93,59,70,45,32"),
+]
+if os.getenv("SP_TOTP_VER") and os.getenv("SP_TOTP_CIPHER"):
+    _TOTP_CANDIDATES = [(os.getenv("SP_TOTP_VER"), os.getenv("SP_TOTP_CIPHER"))]
 USER_AGENT = (
     "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
     "(KHTML, like Gecko) Chrome/123.0 Safari/537.36"
@@ -115,7 +122,7 @@ class SpotifyClient:
             return self._token
         if not self._sp_dc:
             raise SpotifyError("Need SP_DC (cookie) to auto-generate a token, or set SP_ACCESS_TOKEN.")
-        got = self._token_from_homepage() or self._token_via_totp()
+        got = self._token_via_totp() or self._token_from_homepage()
         if not got:
             raise SpotifyError(
                 "Could not mint an access token automatically (homepage + TOTP both failed; "
@@ -139,24 +146,40 @@ class SpotifyClient:
         exp = re.search(r'"accessTokenExpirationTimestampMs":(\d+)', r.text)
         return m.group(1), int(exp.group(1)) if exp else int(time.time() * 1000) + 3_000_000
 
+    def _server_time(self) -> int:
+        """Spotify validates the TOTP against its server clock — read it from the
+        Date header rather than trusting the local clock."""
+        try:
+            r = self._session.head("https://open.spotify.com/", timeout=10)
+            d = r.headers.get("Date")
+            if d:
+                return int(parsedate_to_datetime(d).timestamp())
+        except Exception:
+            pass
+        return int(time.time())
+
     def _token_via_totp(self):
         """Mint an access token via get_access_token with a computed TOTP."""
-        ts = int(time.time())
-        try:
-            otp = _totp(_totp_secret(), ts)
-        except Exception:
-            return None
-        params = {**TOKEN_PARAMS, "totp": otp, "totpVer": TOTP_VER, "ts": ts}
-        try:
-            r = self._session.get(TOKEN_URL, params=params, headers={"Cookie": f"sp_dc={self._sp_dc}"}, timeout=15)
-        except requests.RequestException:
-            return None
-        if r.status_code != 200:
-            return None
-        data = r.json()
-        if data.get("isAnonymous", True) or not data.get("accessToken"):
-            return None
-        return data["accessToken"], int(data.get("accessTokenExpirationTimestampMs", int(time.time() * 1000) + 3_000_000))
+        st = self._server_time()
+        for ver, cipher in _TOTP_CANDIDATES:
+            try:
+                otp = _totp(_totp_secret(cipher), st)
+            except Exception:
+                continue
+            for reason in ("transport", "init"):
+                params = {"reason": reason, "productType": "web-player",
+                          "totp": otp, "totpServer": otp, "totpVer": ver}
+                try:
+                    r = self._session.get(TOKEN_URL, params=params, headers={"Cookie": f"sp_dc={self._sp_dc}"}, timeout=15)
+                except requests.RequestException:
+                    continue
+                if r.status_code != 200:
+                    continue
+                data = r.json()
+                if data.get("isAnonymous", True) or not data.get("accessToken"):
+                    continue
+                return data["accessToken"], int(data.get("accessTokenExpirationTimestampMs", int(time.time() * 1000) + 3_000_000))
+        return None
 
     def _client_token(self) -> str:
         if self._ct_manual:              # manual SP_CLIENT_TOKEN override
@@ -290,11 +313,11 @@ class SpotifyClient:
         return counts
 
 
-def _totp_secret() -> str:
-    """Derive the web player's TOTP secret (base32) from the cipher array."""
-    cipher = [int(x) for x in TOTP_CIPHER.split(",") if x.strip()]
+def _totp_secret(cipher_str: str) -> str:
+    """Derive the web player's TOTP secret (base32) from a cipher array string."""
+    cipher = [int(x) for x in cipher_str.split(",") if x.strip()]
     transformed = [b ^ ((i % 33) + 9) for i, b in enumerate(cipher)]
-    data = "".join(str(t) for t in transformed).encode("ascii")
+    data = "".join(str(t) for t in transformed).encode("utf-8")
     return base64.b32encode(data).decode().rstrip("=")
 
 
