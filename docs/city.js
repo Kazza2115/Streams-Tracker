@@ -135,6 +135,37 @@ class CanvasCity {
       this.zoom = nz;
     }, { passive: false });
     canvas.addEventListener("dblclick", () => { this.zoom = 1; this.panX = 0; this.panY = 0; });
+    // touch: 1 finger = pan, 2 fingers = pinch-zoom, double-tap = reset
+    let tX = 0, tY = 0, tDist = 0, lastTap = 0;
+    const tp = t => { const r = canvas.getBoundingClientRect(); return { x: t.clientX - r.left, y: t.clientY - r.top }; };
+    canvas.addEventListener("touchstart", e => {
+      if (e.touches.length === 1) {
+        const now = Date.now();
+        if (now - lastTap < 300) { this.zoom = 1; this.panX = 0; this.panY = 0; }
+        lastTap = now;
+        const p = tp(e.touches[0]); tX = p.x; tY = p.y;
+      } else if (e.touches.length >= 2) {
+        const a = tp(e.touches[0]), b = tp(e.touches[1]);
+        tDist = Math.hypot(a.x - b.x, a.y - b.y); tX = (a.x + b.x) / 2; tY = (a.y + b.y) / 2;
+      }
+      this.hover = null; this.tip.style.display = "none";
+    }, { passive: false });
+    canvas.addEventListener("touchmove", e => {
+      e.preventDefault();
+      if (e.touches.length === 1) {
+        const p = tp(e.touches[0]); this.panX += p.x - tX; this.panY += p.y - tY; tX = p.x; tY = p.y;
+      } else if (e.touches.length >= 2) {
+        const a = tp(e.touches[0]), b = tp(e.touches[1]);
+        const dist = Math.hypot(a.x - b.x, a.y - b.y), mx = (a.x + b.x) / 2, my = (a.y + b.y) / 2;
+        if (tDist > 0) { const nz = clamp(this.zoom * (dist / tDist), 0.25, 7); this.panX = mx - (mx - this.panX) * (nz / this.zoom); this.panY = my - (my - this.panY) * (nz / this.zoom); this.zoom = nz; }
+        this.panX += mx - tX; this.panY += my - tY;
+        tDist = dist; tX = mx; tY = my;
+      }
+    }, { passive: false });
+    canvas.addEventListener("touchend", e => {
+      if (e.touches.length === 1) { const p = tp(e.touches[0]); tX = p.x; tY = p.y; tDist = 0; }
+      else if (e.touches.length === 0) { tDist = 0; }
+    });
     requestAnimationFrame(t => this.loop(t));
   }
 
@@ -249,8 +280,12 @@ class CanvasCity {
       const m = counts.get(d), i = seenW.get(d) || 0; seenW.set(d, i + 1);
       this.walkers.push({ name: a, color: theme_color(a), district: d, labelled: !d.named, u: (i + 0.5) / m, phase: Math.random() * 1000, _gx: 0, _gy: 0 });
     }
-    if (this.walkers.length > 60) this.walkers.length = 60;     // cap citizens for big playlists
     this._detail = this.buildings.length <= 140;                // simplify rendering when huge
+    const wcap = this._detail ? 18 : 6;                         // far fewer citizens; sampled evenly so they spread out
+    if (this.walkers.length > wcap) {
+      const step = this.walkers.length / wcap;
+      this.walkers = Array.from({ length: wcap }, (_, i) => this.walkers[Math.floor(i * step)]);
+    }
     this.zoom = 1; this.panX = 0; this.panY = 0;                // fresh fit per search
     this.camera();
   }
