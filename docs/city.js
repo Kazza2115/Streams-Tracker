@@ -213,22 +213,33 @@ class CanvasCity {
     const defs = big.map(([artist, ts]) => ({ artist, tracks: ts, named: true }));
     if (smallTracks.length) defs.push({ artist: "Downtown", tracks: smallTracks, named: false });
 
-    let zoneCols = 1, zoneRows = 1;
-    for (const d of defs) { const dc = Math.ceil(Math.sqrt(d.tracks.length)); zoneCols = Math.max(zoneCols, dc); zoneRows = Math.max(zoneRows, Math.ceil(d.tracks.length / dc)); }
-    const spanX = (zoneCols - 1) * BP, spanY = (zoneRows - 1) * BP;
-    const stepX = spanX + 2 * ZPAD + AV, stepY = spanY + 2 * ZPAD + AV;
+    // each district is sized to ITS OWN track count
+    for (const d of defs) {
+      d.dcols = Math.max(1, Math.ceil(Math.sqrt(d.tracks.length)));
+      d.drows = Math.max(1, Math.ceil(d.tracks.length / d.dcols));
+    }
     const metaCols = Math.ceil(Math.sqrt(defs.length)), metaRows = Math.ceil(defs.length / metaCols);
+    // column width = widest district in that column; row height = tallest in that row
+    const colW = new Array(metaCols).fill(1), rowH = new Array(metaRows).fill(1);
+    defs.forEach((d, di) => {
+      const mc = di % metaCols, mr = Math.floor(di / metaCols);
+      colW[mc] = Math.max(colW[mc], d.dcols); rowH[mr] = Math.max(rowH[mr], d.drows);
+    });
+    const colStart = [], rowStart = [];
+    let xacc = 0; for (let c = 0; c < metaCols; c++) { colStart[c] = xacc; xacc += (colW[c] - 1) * BP + 2 * ZPAD + AV; }
+    let yacc = 0; for (let r = 0; r < metaRows; r++) { rowStart[r] = yacc; yacc += (rowH[r] - 1) * BP + 2 * ZPAD + AV; }
 
     const maxC = Math.max(1, ...tracks.filter(t => t.play_count != null).map(t => t.play_count));
-    this.districts = []; this.buildings = []; this.trees = []; this.signs = []; this.walkers = [];
+    this.districts = []; this.buildings = []; this.trees = []; this.signs = [];
 
     defs.forEach((d, di) => {
       const mc = di % metaCols, mr = Math.floor(di / metaCols);
-      const ox = mc * stepX, oy = mr * stepY;
+      const ox = colStart[mc], oy = rowStart[mr];
+      const spanX = (d.dcols - 1) * BP, spanY = (d.drows - 1) * BP;   // this district's own footprint
       const theme = themeFor(d.artist, d.named);
       this.districts.push({ ...d, ox, oy, spanX, spanY, theme });
-      for (let k = 0; k < zoneCols * zoneRows; k++) {
-        const lc = k % zoneCols, lr = Math.floor(k / zoneCols), cx = ox + lc * BP, cy = oy + lr * BP;
+      for (let k = 0; k < d.dcols * d.drows; k++) {
+        const lc = k % d.dcols, lr = Math.floor(k / d.dcols), cx = ox + lc * BP, cy = oy + lr * BP;
         if (k < d.tracks.length) {
           const t = d.tracks[k];
           const jx = (rand01(t.name + "x") - 0.5) * 0.1, jy = (rand01(t.name + "y") - 0.5) * 0.1;
@@ -246,8 +257,17 @@ class CanvasCity {
       this.signs.push({ gx: ox + spanX / 2, gy: oy + spanY + ZPAD + 0.05, text: d.named ? d.artist : "Downtown", named: d.named, accent: theme.accent });
     });
 
-    this.vAv = []; for (let mc = -1; mc < metaCols; mc++) this.vAv.push(mc * stepX + spanX + ZPAD + AV / 2);
-    this.hAv = []; for (let mr = -1; mr < metaRows; mr++) this.hAv.push(mr * stepY + spanY + ZPAD + AV / 2);
+    // straight avenues at the column / row boundaries
+    this.vAv = [colStart[0] - ZPAD - AV / 2];
+    for (let c = 0; c < metaCols; c++) {
+      const rightEdge = colStart[c] + (colW[c] - 1) * BP + ZPAD;
+      this.vAv.push(c < metaCols - 1 ? (rightEdge + colStart[c + 1] - ZPAD) / 2 : rightEdge + AV / 2);
+    }
+    this.hAv = [rowStart[0] - ZPAD - AV / 2];
+    for (let r = 0; r < metaRows; r++) {
+      const botEdge = rowStart[r] + (rowH[r] - 1) * BP + ZPAD;
+      this.hAv.push(r < metaRows - 1 ? (botEdge + rowStart[r + 1] - ZPAD) / 2 : botEdge + AV / 2);
+    }
     this.gMinX = this.vAv[0] - AV / 2; this.gMaxX = this.vAv[this.vAv.length - 1] + AV / 2;
     this.gMinY = this.hAv[0] - AV / 2; this.gMaxY = this.hAv[this.hAv.length - 1] + AV / 2;
 
