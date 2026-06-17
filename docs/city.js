@@ -88,19 +88,15 @@ function pointInPoly(px, py, poly) {
 }
 
 const CAR_COLORS = ["#e35d5d", "#5aa7e0", "#f3c64b", "#74c98a", "#d98ad0", "#f2f2f2", "#7d8bd6"];
-const BP = 1.7, AV = 1.2, ZPAD = 1.0, DISTRICT_MIN = 5;
+const BP = 1.7, AV = 1.2, ZPAD = 1.0, DISTRICT_MIN = 5, MAX_DISTRICTS = 8;
 const RINGPAD = 0.95;   // citizen sidewalk ring radius beyond the block edge (clears buildings)
 const dk = (c, d) => [c[0], c[1], Math.max(0, c[2] - d)];
 
-// deterministic theme per artist: palette + roof style
+// deterministic, muted theme per artist: one cohesive hue + a light platform tint
 function themeFor(artist, named) {
-  if (!named) return { lot: [220, 12, 30], side: [220, 8, 50], accent: [45, 85, 60], style: -1,
-    colors: [[220, 14, 62], [212, 16, 54], [228, 12, 68], [206, 10, 60]] };
+  if (!named) return { base: [218, 8, 60], accent: [218, 18, 42], lot: [218, 14, 90], named: false, style: 0 };
   const h = hashStr(artist) % 360;
-  return {
-    lot: [h, 28, 30], side: [h, 16, 50], accent: [(h + 180) % 360, 72, 62], style: hashStr(artist + "s") % 4,
-    colors: [[h, 42, 60], [(h + 24) % 360, 40, 52], [(h + 336) % 360, 38, 66], [h, 30, 70]],
-  };
+  return { base: [h, 34, 62], accent: [h, 34, 38], lot: [h, 40, 91], named: true, style: hashStr(artist + "s") % 4 };
 }
 
 // ============================================================ the city
@@ -208,10 +204,12 @@ class CanvasCity {
     const tracks = this.result.tracks;
     const byArtist = new Map();
     for (const t of tracks) { const a = t.artists || "Unknown"; (byArtist.get(a) || byArtist.set(a, []).get(a)).push(t); }
-    const big = [...byArtist.entries()].filter(([, ts]) => ts.length >= DISTRICT_MIN).sort((a, b) => b[1].length - a[1].length);
-    const smallTracks = [...byArtist.entries()].filter(([, ts]) => ts.length < DISTRICT_MIN).flatMap(([, ts]) => ts);
-    const defs = big.map(([artist, ts]) => ({ artist, tracks: ts, named: true }));
-    if (smallTracks.length) defs.push({ artist: "Downtown", tracks: smallTracks, named: false });
+    const bigAll = [...byArtist.entries()].filter(([, ts]) => ts.length >= DISTRICT_MIN).sort((a, b) => b[1].length - a[1].length);
+    const named = bigAll.slice(0, MAX_DISTRICTS);                 // only the top artists get a named district
+    const downtown = bigAll.slice(MAX_DISTRICTS).flatMap(([, ts]) => ts)
+      .concat([...byArtist.entries()].filter(([, ts]) => ts.length < DISTRICT_MIN).flatMap(([, ts]) => ts));
+    const defs = named.map(([artist, ts]) => ({ artist, tracks: ts, named: true }));
+    if (downtown.length) defs.push({ artist: "Downtown", tracks: downtown, named: false });
 
     // each district is sized to ITS OWN track count
     for (const d of defs) {
@@ -242,16 +240,14 @@ class CanvasCity {
         const lc = k % d.dcols, lr = Math.floor(k / d.dcols), cx = ox + lc * BP, cy = oy + lr * BP;
         if (k < d.tracks.length) {
           const t = d.tracks[k];
-          const jx = (rand01(t.name + "x") - 0.5) * 0.1, jy = (rand01(t.name + "y") - 0.5) * 0.1;
+          const jx = (rand01(t.name + "x") - 0.5) * 0.08, jy = (rand01(t.name + "y") - 0.5) * 0.08;
           this.buildings.push({
-            track: t, gx: cx + jx, gy: cy + jy, f: 0.8 + (hashStr(t.name + "f") % 6) / 100,
+            track: t, gx: cx + jx, gy: cy + jy, f: 0.82 + (hashStr(t.name + "f") % 5) / 100,
             ruin: t.play_count == null, pc: t.play_count, maxC,
-            col: theme.colors[hashStr(t.name) % theme.colors.length],
+            col: [theme.base[0], theme.base[1], theme.base[2] + (hashStr(t.name) % 9 - 4)], // cohesive hue, slight lightness variation
             accent: theme.accent, style: theme.style < 0 ? hashStr(t.name) % 4 : theme.style,
             isTallest: false, start: this.buildings.length * 55, _poly: null,
           });
-        } else if (tracks.length <= 140) {
-          this.trees.push({ gx: cx + (rand01(d.artist + k + "x") - 0.5) * 0.5, gy: cy + (rand01(d.artist + k + "y") - 0.5) * 0.5, k: d.artist + k });
         }
       }
       this.signs.push({ gx: ox + spanX / 2, gy: oy + spanY + ZPAD + 0.05, text: d.named ? d.artist : "Downtown", named: d.named, accent: theme.accent });
@@ -435,16 +431,13 @@ class CanvasCity {
   }
 
   _drawGround() {
-    const N = this.iso(this.gMinX, this.gMinY), E = this.iso(this.gMaxX, this.gMinY), S = this.iso(this.gMaxX, this.gMaxY), Wp = this.iso(this.gMinX, this.gMaxY), dz = 14 * this.scale;
-    this._quad([Wp, S, { x: S.x, y: S.y + dz }, { x: Wp.x, y: Wp.y + dz }], "#4a5360");
-    this._quad([S, E, { x: E.x, y: E.y + dz }, { x: S.x, y: S.y + dz }], "#3a424d");
-    this._quad([N, E, S, Wp], "#6f7889");                          // road base
-    for (const gx of this.vAv) for (let gy = this.gMinY + 0.3; gy < this.gMaxY - 0.3; gy += 0.95) this._strip(gx, gy, gx, gy + 0.34, 0.05, "#f4cf57");
-    for (const gy of this.hAv) for (let gx = this.gMinX + 0.3; gx < this.gMaxX - 0.3; gx += 0.95) this._strip(gx, gy, gx + 0.34, gy, 0.05, "#f4cf57");
-    for (const d of this.districts) {
+    const N = this.iso(this.gMinX, this.gMinY), E = this.iso(this.gMaxX, this.gMinY), S = this.iso(this.gMaxX, this.gMaxY), Wp = this.iso(this.gMinX, this.gMaxY), dz = 12 * this.scale;
+    this._quad([Wp, S, { x: S.x, y: S.y + dz }, { x: Wp.x, y: Wp.y + dz }], "#c3cad6");
+    this._quad([S, E, { x: E.x, y: E.y + dz }, { x: S.x, y: S.y + dz }], "#b3bbc9");
+    this._quad([N, E, S, Wp], "#dfe4ec");                          // calm uniform ground (no dashes)
+    for (const d of this.districts) {                              // one subtle platform per district
       const cx = d.ox + d.spanX / 2, cy = d.oy + d.spanY / 2;
-      this._diamond(cx, cy, d.spanX / 2 + ZPAD, d.spanY / 2 + ZPAD, colHSL(d.theme.side));
-      this._diamond(cx, cy, d.spanX / 2 + ZPAD - 0.16, d.spanY / 2 + ZPAD - 0.16, colHSL(d.theme.lot));
+      this._diamond(cx, cy, d.spanX / 2 + ZPAD, d.spanY / 2 + ZPAD, colHSL(d.theme.lot));
     }
   }
 
@@ -531,12 +524,10 @@ class CanvasCity {
 
   _drawSign(s) {
     const ctx = this.ctx, g = this.iso(s.gx, s.gy), sc = this.scale;
-    ctx.fillStyle = "#39404d"; ctx.fillRect(g.x - 1.5, g.y - 22 * sc, 3, 22 * sc);
-    ctx.font = `700 ${Math.round(11 * Math.max(0.9, sc))}px system-ui,sans-serif`; ctx.textAlign = "center";
-    const label = s.named ? "♪ " + s.text : s.text, tw = ctx.measureText(label).width;
-    ctx.fillStyle = s.named ? colHSL(s.accent, -8) : "#52596a"; this._rr(g.x - tw / 2 - 7, g.y - 37 * sc, tw + 14, 17 * sc, 4); ctx.fill();
-    ctx.fillStyle = "rgba(255,255,255,.35)"; ctx.lineWidth = 1; ctx.stroke();
-    ctx.fillStyle = "#fff"; ctx.fillText(label, g.x, g.y - 37 * sc + 12 * sc);
+    ctx.font = `600 ${Math.round(11 * Math.max(0.95, sc))}px system-ui,sans-serif`; ctx.textAlign = "center";
+    const tw = ctx.measureText(s.text).width, y = g.y - 28 * sc;
+    ctx.fillStyle = "rgba(255,255,255,.92)"; this._rr(g.x - tw / 2 - 8, y, tw + 16, 18 * sc, 9 * sc); ctx.fill();
+    ctx.fillStyle = colHSL(s.accent); ctx.fillText(s.text, g.x, y + 12.5 * sc);
   }
 
   _stepCar(c, dt) {
