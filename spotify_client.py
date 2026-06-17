@@ -30,6 +30,7 @@ import hashlib
 import hmac
 import json
 import os
+import re
 import struct
 import time
 from dataclasses import dataclass
@@ -114,27 +115,48 @@ class SpotifyClient:
             return self._token
         if not self._sp_dc:
             raise SpotifyError("Need SP_DC (cookie) to auto-generate a token, or set SP_ACCESS_TOKEN.")
+        got = self._token_from_homepage() or self._token_via_totp()
+        if not got:
+            raise SpotifyError(
+                "Could not mint an access token automatically (homepage + TOTP both failed; "
+                "the sp_dc cookie may be expired/invalid, the IP may be blocked, or the TOTP "
+                "secret rotated). Set SP_ACCESS_TOKEN (+ SP_CLIENT_TOKEN) as a fallback."
+            )
+        self._token, self._token_expiry_ms = got
+        return self._token
+
+    def _token_from_homepage(self):
+        """Read the bootstrap access token from the web player HTML (no TOTP)."""
+        try:
+            r = self._session.get("https://open.spotify.com/", headers={"Cookie": f"sp_dc={self._sp_dc}"}, timeout=15)
+        except requests.RequestException:
+            return None
+        if r.status_code != 200:
+            return None
+        m = re.search(r'"accessToken":"([^"]+)"', r.text)
+        if not m:
+            return None
+        exp = re.search(r'"accessTokenExpirationTimestampMs":(\d+)', r.text)
+        return m.group(1), int(exp.group(1)) if exp else int(time.time() * 1000) + 3_000_000
+
+    def _token_via_totp(self):
+        """Mint an access token via get_access_token with a computed TOTP."""
         ts = int(time.time())
         try:
             otp = _totp(_totp_secret(), ts)
-        except Exception as e:
-            raise SpotifyError(f"TOTP computation failed: {e}") from e
+        except Exception:
+            return None
         params = {**TOKEN_PARAMS, "totp": otp, "totpVer": TOTP_VER, "ts": ts}
         try:
             r = self._session.get(TOKEN_URL, params=params, headers={"Cookie": f"sp_dc={self._sp_dc}"}, timeout=15)
-        except requests.RequestException as e:
-            raise SpotifyError(f"Could not reach Spotify token endpoint: {e}") from e
+        except requests.RequestException:
+            return None
         if r.status_code != 200:
-            raise SpotifyError(f"Token endpoint HTTP {r.status_code}; sp_dc invalid/expired or TOTP rejected.")
+            return None
         data = r.json()
         if data.get("isAnonymous", True) or not data.get("accessToken"):
-            raise SpotifyError(
-                "Token came back anonymous — the TOTP secret/version is likely outdated "
-                "(update SP_TOTP_CIPHER / SP_TOTP_VER), or set SP_ACCESS_TOKEN as a fallback."
-            )
-        self._token = data["accessToken"]
-        self._token_expiry_ms = int(data.get("accessTokenExpirationTimestampMs", now_ms + 3_000_000))
-        return self._token
+            return None
+        return data["accessToken"], int(data.get("accessTokenExpirationTimestampMs", int(time.time() * 1000) + 3_000_000))
 
     def _client_token(self) -> str:
         if self._ct_manual:              # manual SP_CLIENT_TOKEN override
