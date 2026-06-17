@@ -91,8 +91,12 @@ never committed.
 1. Sign up at <https://render.com> (free) and connect your GitHub.
 2. **New → Blueprint**, pick this repo and the `claude/laughing-rubin-fm8819`
    branch. Render reads `render.yaml`.
-3. When prompted, paste the secret values: `SP_DC`, `SP_HASH_FETCH_PLAYLIST`,
-   `SP_HASH_GET_ALBUM` (see the section above for how to capture them).
+3. When prompted, enter the auth secrets. The persisted-query hashes are baked
+   into `spotify_client.py`, so you only need auth. Spotify uses **pathfinder v2**,
+   whose token step often needs TOTP/`client-token`; the simplest first test is to
+   paste a **captured bearer token** (`SP_ACCESS_TOKEN`) and **client-token**
+   (`SP_CLIENT_TOKEN`) from a `pathfinder/v2/query` request's headers (these expire
+   in ~1h — fine to validate the pipeline). `SP_DC` is the alternative cookie path.
 4. Apply / deploy, wait for the build, then open the service URL and paste a
    playlist.
 

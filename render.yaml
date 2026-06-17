@@ -14,9 +14,12 @@ services:
         value: spotify
       - key: PYTHON_VERSION
         value: "3.11.9"
+      # Auth (enter in the dashboard, never committed). For a first test the
+      # simplest is a captured bearer token + client-token (they expire ~1h).
+      # The query hashes are baked into spotify_client.py as defaults.
       - key: SP_DC
-        sync: false                 # paste your sp_dc cookie in the dashboard
-      - key: SP_HASH_FETCH_PLAYLIST
-        sync: false                 # pathfinder persisted-query hash (rotates)
-      - key: SP_HASH_GET_ALBUM
-        sync: false                 # pathfinder persisted-query hash (rotates)
+        sync: false                 # sp_dc cookie (cookie path; may need TOTP)
+      - key: SP_ACCESS_TOKEN
+        sync: false                 # captured "Bearer <token>" value (quick test)
+      - key: SP_CLIENT_TOKEN
+        sync: false                 # captured client-token header value
