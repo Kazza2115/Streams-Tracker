@@ -36,7 +36,7 @@ def test_mock_playlist():
 
 
 class _FakeClient:
-    """Stands in for SpotifyClient; the playlist already carries play counts."""
+    """Stands in for SpotifyClient; playlist/album already carry play counts."""
 
     def fetch_playlist(self, playlist_id):
         return PlaylistData(
@@ -48,6 +48,12 @@ class _FakeClient:
             ],
         )
 
+    def fetch_album(self, album_id):
+        return PlaylistData(
+            name="Test Album",
+            tracks=[TrackCount("d", "Z", 10, "t4", "alX"), TrackCount("e", "Z", 5, "t5", "alX")],
+        )
+
 
 def test_spotify_provider_aggregates_playlist():
     r = SpotifyProvider(client=_FakeClient()).get_streams("playlist", "pid")
@@ -57,8 +63,15 @@ def test_spotify_provider_aggregates_playlist():
     assert r.partial is True
 
 
-def test_spotify_provider_rejects_non_playlist():
+def test_spotify_provider_aggregates_album():
+    r = SpotifyProvider(client=_FakeClient()).get_streams("album", "aid")
+    assert r.entity_type == "album"
+    assert r.entity_name == "Test Album"
+    assert r.total_streams == 15
+
+
+def test_spotify_provider_rejects_artist():
     import pytest
 
     with pytest.raises(NotImplementedError):
-        SpotifyProvider(client=_FakeClient()).get_streams("album", "x")
+        SpotifyProvider(client=_FakeClient()).get_streams("artist", "x")

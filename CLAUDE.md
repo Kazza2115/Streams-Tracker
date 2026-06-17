@@ -46,7 +46,8 @@ Spotify exposes **no** playlist-level stream counter. The obtainable number is t
 operation returns each track's `playcount` directly (in `itemV2.data.playcount`), so
 `SpotifyProvider` just fetches the playlist (paginated) and sums — no per-album lookup
 needed. Tracks whose count is missing are excluded and the result is flagged `partial`.
-(`getAlbum`/`album_play_counts`, using `tracksV2`, is kept for future album entities.)
+**Albums** work the same way: `getAlbum` (`fetch_album`, using `tracksV2`) returns each
+track's `playcount`, summed into an album total.
 
 ## Current state
 - **Works and tested** (offline, via `MockProvider` + a fake Spotify client): URL/URI
@@ -66,8 +67,9 @@ needed. Tracks whose count is missing are excluded and the result is flagged `pa
   `SP_DC` alone should suffice. Everything volatile is env-overridable: `SP_TOTP_CIPHER`/
   `SP_TOTP_VER` (token comes back "anonymous"), `SP_HASH_*`/`SP_OP_*` (HTTP 400), and the
   manual `SP_ACCESS_TOKEN`/`SP_CLIENT_TOKEN` remain as fallbacks.
-- **Not done yet:** album & artist entities, and `SongstatsProvider` (phase-2 stub,
-  raises `NotImplementedError`).
+- **Playlists & albums** are supported (real per-track counts summed). **Artist**
+  entities are **not done yet** (need a discography/top-tracks op + hash), and
+  `SongstatsProvider` is a phase-2 stub (`NotImplementedError`).
 
 ## Run / test
 ```bash

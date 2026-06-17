@@ -334,29 +334,40 @@ class SpotifyClient:
                 break  # short page => last page (works without relying on totalCount)
         return PlaylistData(name=name, tracks=tracks)
 
-    def album_play_counts(self, album_id: str) -> dict:
-        """Map track_id -> play_count for every track on an album, paginated."""
+    def fetch_album(self, album_id: str) -> PlaylistData:
+        """Return the album name + tracks (with play counts), paginated."""
+        from providers import TrackCount  # local import avoids an import cycle
+
         uri = f"spotify:album:{album_id}"
-        counts: dict[str, int] = {}
+        name = ""
+        tracks: list = []
         offset = 0
         while True:
             data = self._query("getAlbum", {"uri": uri, "locale": LOCALE, "offset": offset, "limit": ALBUM_PAGE_SIZE})
             album = data.get("albumUnion") or data.get("album") or {}
-            tracks = album.get("tracksV2") or album.get("tracks") or {}
-            items = tracks.get("items") or []
+            name = name or (album.get("name") or "Album")
+            tv = album.get("tracksV2") or album.get("tracks") or {}
+            items = tv.get("items") or []
             for it in items:
                 tr = (it or {}).get("track") or {}
-                tid = _id_from_uri(tr.get("uri", ""))
-                pc = tr.get("playcount")
-                if tid and pc is not None:
-                    try:
-                        counts[tid] = int(pc)
-                    except (TypeError, ValueError):
-                        pass
+                artists = ", ".join(
+                    a.get("profile", {}).get("name", "")
+                    for a in (tr.get("artists") or {}).get("items", [])
+                ) or "Unknown"
+                try:
+                    play_count = int(tr.get("playcount"))
+                except (TypeError, ValueError):
+                    play_count = None
+                tracks.append(
+                    TrackCount(
+                        name=tr.get("name", "Unknown"), artists=artists, play_count=play_count,
+                        track_id=_id_from_uri(tr.get("uri", "")), album_id=album_id,
+                    )
+                )
             offset += ALBUM_PAGE_SIZE
             if not items or len(items) < ALBUM_PAGE_SIZE:
                 break
-        return counts
+        return PlaylistData(name=name, tracks=tracks)
 
 
 def _totp_candidates():

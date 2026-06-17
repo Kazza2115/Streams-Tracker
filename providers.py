@@ -161,18 +161,21 @@ class SpotifyProvider(StreamProvider):
         self.client = client
 
     def get_streams(self, entity_type: str, entity_id: str) -> StreamResult:
-        if entity_type != "playlist":
+        if entity_type == "playlist":
+            data = self.client.fetch_playlist(entity_id)   # tracks already carry counts
+        elif entity_type == "album":
+            data = self.client.fetch_album(entity_id)
+        else:
             raise NotImplementedError(
-                f"SpotifyProvider phase-1 supports playlists only (got {entity_type!r})."
+                f"SpotifyProvider supports playlists and albums (got {entity_type!r})."
             )
-        playlist = self.client.fetch_playlist(entity_id)   # tracks already carry counts
         return aggregate_tracks(
-            entity_type="playlist",
-            entity_name=playlist.name,
+            entity_type=entity_type,
+            entity_name=data.name,
             entity_id=entity_id,
             source=self.name,
-            tracks=playlist.tracks,
-            url=f"https://open.spotify.com/playlist/{entity_id}",
+            tracks=data.tracks,
+            url=f"https://open.spotify.com/{entity_type}/{entity_id}",
         )
 
 
