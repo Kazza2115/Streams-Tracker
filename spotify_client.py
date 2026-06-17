@@ -48,14 +48,17 @@ PATHFINDER_URL = os.getenv("SP_PATHFINDER_URL", "https://api-partner.spotify.com
 CLIENTTOKEN_URL = os.getenv("SP_CLIENTTOKEN_URL", "https://clienttoken.spotify.com/v1/clienttoken")
 CLIENT_ID = os.getenv("SP_CLIENT_ID", "d8a5ed958d274c2e8ee717e6a4b0971d")
 CLIENT_VERSION = os.getenv("SP_CLIENT_VERSION", "1.2.93.309.ga193fd34")
-# TOTP candidates (version, cipher), newest first; tried in order. Override a
-# single one via SP_TOTP_VER + SP_TOTP_CIPHER when Spotify rotates the secret.
-_TOTP_CANDIDATES = [
-    ("14", "62,54,109,83,107,77,41,103,45,93,114,38,41,97,64,51,95,94,95,94"),
-    ("13", "59,92,64,70,99,78,117,75,99,103,116,67,103,51,87,63,93,59,70,45,32"),
+# TOTP secrets rotate often (a version "expires" after a few weeks). Fetch the
+# community-maintained list at runtime so we auto-update, with the latest known
+# values baked in as a fallback. Override one via SP_TOTP_VER + SP_TOTP_CIPHER;
+# change the source via SP_SECRETS_URL.
+SECRETS_URL = os.getenv("SP_SECRETS_URL", "https://raw.githubusercontent.com/xyloflake/spot-secrets-go/main/secrets/secretDict.json")
+_BAKED_TOTP = [
+    ("61", "44,55,47,42,70,40,34,114,76,74,50,111,120,97,75,76,94,102,43,69,49,120,118,80,64,78"),
+    ("60", "79,109,69,123,90,65,46,74,94,34,58,48,70,71,92,85,122,63,91,64,87,87"),
+    ("59", "123,105,79,70,110,59,52,125,60,49,80,70,89,75,80,86,63,53,123,37,117,49,52,93,77,62,47,86,48,104,68,72"),
 ]
-if os.getenv("SP_TOTP_VER") and os.getenv("SP_TOTP_CIPHER"):
-    _TOTP_CANDIDATES = [(os.getenv("SP_TOTP_VER"), os.getenv("SP_TOTP_CIPHER"))]
+_remote_cache = {"ts": 0.0, "candidates": None}
 USER_AGENT = (
     "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
     "(KHTML, like Gecko) Chrome/123.0 Safari/537.36"
@@ -161,7 +164,7 @@ class SpotifyClient:
     def _token_via_totp(self):
         """Mint an access token via get_access_token with a computed TOTP."""
         st = self._server_time()
-        for ver, cipher in _TOTP_CANDIDATES:
+        for ver, cipher in _totp_candidates():
             try:
                 otp = _totp(_totp_secret(cipher), st)
             except Exception:
@@ -197,7 +200,7 @@ class SpotifyClient:
             rep["server_date"] = h.headers.get("Date")
         except Exception as e:
             rep["homepage_head_error"] = repr(e)
-        ver, cipher = _TOTP_CANDIDATES[0]
+        ver, cipher = _totp_candidates()[0]
         try:
             otp = _totp(_totp_secret(cipher), self._server_time())
             r = self._session.get(
@@ -354,6 +357,29 @@ class SpotifyClient:
             if not items or len(items) < ALBUM_PAGE_SIZE:
                 break
         return counts
+
+
+def _totp_candidates():
+    """Newest-first list of (version, cipher_csv). Env override > maintained
+    remote (cached 6h) > baked fallback."""
+    if os.getenv("SP_TOTP_VER") and os.getenv("SP_TOTP_CIPHER"):
+        return [(os.getenv("SP_TOTP_VER"), os.getenv("SP_TOTP_CIPHER"))]
+    now = time.time()
+    if _remote_cache["candidates"] and now - _remote_cache["ts"] < 21_600:
+        return _remote_cache["candidates"]
+    try:
+        data = requests.get(SECRETS_URL, timeout=10).json()
+        cands = sorted(
+            ((str(k), ",".join(str(n) for n in v)) for k, v in data.items() if v),
+            key=lambda kv: int(kv[0]), reverse=True,
+        )
+        if cands:
+            _remote_cache["candidates"] = cands
+            _remote_cache["ts"] = now
+            return cands
+    except Exception:
+        pass
+    return _remote_cache["candidates"] or _BAKED_TOTP
 
 
 def _totp_secret(cipher_str: str) -> str:
