@@ -88,7 +88,8 @@ function pointInPoly(px, py, poly) {
 }
 
 const CAR_COLORS = ["#e35d5d", "#5aa7e0", "#f3c64b", "#74c98a", "#d98ad0", "#f2f2f2", "#7d8bd6"];
-const BP = 1.5, AV = 2.0, ZPAD = 0.7, DISTRICT_MIN = 5;
+const BP = 1.7, AV = 1.9, ZPAD = 0.9, DISTRICT_MIN = 5;
+const dk = (c, d) => [c[0], c[1], Math.max(0, c[2] - d)];
 
 // deterministic theme per artist: palette + roof style
 function themeFor(artist, named) {
@@ -139,7 +140,7 @@ class CanvasCity {
     const contentLeft = (this.gMinX - this.gMaxY) * this.TW, contentW = ((this.gMaxX - this.gMinY) - (this.gMinX - this.gMaxY)) * this.TW;
     this.originX = (this.W - contentW) / 2 - contentLeft;
     let top = (this.gMinX + this.gMinY) * this.TH;
-    for (const b of this.buildings) { const ty = (b.gx + b.gy) * this.TH - b.targetH - 20 * this.scale; if (ty < top) top = ty; }
+    for (const b of this.buildings) { const ty = (b.gx + b.gy) * this.TH - b.targetH - 40 * this.scale; if (ty < top) top = ty; }
     const bottom = (this.gMaxX + this.gMaxY) * this.TH + 14 * this.scale;
     this.originY = (this.H - (bottom - top)) / 2 - top;
   }
@@ -182,9 +183,9 @@ class CanvasCity {
         const lc = k % zoneCols, lr = Math.floor(k / zoneCols), cx = ox + lc * BP, cy = oy + lr * BP;
         if (k < d.tracks.length) {
           const t = d.tracks[k];
-          const jx = (rand01(t.name + "x") - 0.5) * 0.28, jy = (rand01(t.name + "y") - 0.5) * 0.28;
+          const jx = (rand01(t.name + "x") - 0.5) * 0.1, jy = (rand01(t.name + "y") - 0.5) * 0.1;
           this.buildings.push({
-            track: t, gx: cx + jx, gy: cy + jy, f: 0.5 + (hashStr(t.name + "f") % 14) / 100,
+            track: t, gx: cx + jx, gy: cy + jy, f: 0.6 + (hashStr(t.name + "f") % 12) / 100,
             ruin: t.play_count == null, pc: t.play_count, maxC,
             col: theme.colors[hashStr(t.name) % theme.colors.length],
             accent: theme.accent, style: theme.style < 0 ? hashStr(t.name) % 4 : theme.style,
@@ -202,11 +203,11 @@ class CanvasCity {
     this.gMinX = this.vAv[0] - AV / 2; this.gMaxX = this.vAv[this.vAv.length - 1] + AV / 2;
     this.gMinY = this.hAv[0] - AV / 2; this.gMaxY = this.hAv[this.hAv.length - 1] + AV / 2;
 
-    this.fit(190);
-    const minH = 22 * this.scale, maxH = this.maxH;
+    this.fit(280);
+    const minH = 64 * this.scale, maxH = this.maxH;
     let tallest = null;
     for (const b of this.buildings) {
-      b.targetH = b.ruin ? 24 * this.scale : minH + (maxH - minH) * Math.pow(b.pc / b.maxC, 0.62);
+      b.targetH = b.ruin ? 52 * this.scale : minH + (maxH - minH) * Math.pow(b.pc / b.maxC, 0.58);
       if (!b.ruin && (!tallest || b.pc > tallest.pc)) tallest = b;
     }
     if (tallest) tallest.isTallest = true;
@@ -354,41 +355,50 @@ class CanvasCity {
 
   _drawBuilding(b, now) {
     const ctx = this.ctx;
-    const p = Math.max(0, Math.min(1, (now - this.t0 - b.start) / 700));
+    const p = clamp((now - this.t0 - b.start) / 700, 0, 1);
     const h = b.targetH * (1 - Math.pow(1 - p, 3));
+    const ph = Math.min(10 * this.scale, 0.14 * h + 3);            // foundation plinth height
     const C = this.iso(b.gx, b.gy), hw = b.f * this.TW, hh = b.f * this.TH;
-    const N = { x: C.x, y: C.y - hh }, Sp = { x: C.x, y: C.y + hh }, E = { x: C.x + hw, y: C.y }, Wp = { x: C.x - hw, y: C.y };
-    b._poly = [E, Sp, Wp, { x: Wp.x, y: Wp.y - h }, { x: N.x, y: N.y - h }, { x: E.x, y: E.y - h }];
-    // soft shadow
-    this._diamond(b.gx + 0.14, b.gy + 0.14, b.f * 1.05, b.f * 1.05, "rgba(20,28,40,.16)");
+    const gN = { x: C.x, y: C.y - hh }, gS = { x: C.x, y: C.y + hh }, gE = { x: C.x + hw, y: C.y }, gW = { x: C.x - hw, y: C.y };
+    // ground shadow + foundation plinth (anchors the building to its lot)
+    this._diamond(b.gx + 0.13, b.gy + 0.13, b.f * 1.18, b.f * 1.18, "rgba(18,26,38,.17)");
+    this._boxAt(b.gx, b.gy, b.f * 1.06, b.f * 1.06, 0, ph, b.ruin ? [220, 6, 44] : dk(b.col, 26));
+    // building lifted onto the plinth
+    const N = { x: gN.x, y: gN.y - ph }, S = { x: gS.x, y: gS.y - ph }, E = { x: gE.x, y: gE.y - ph }, W = { x: gW.x, y: gW.y - ph };
+    const Nt = { x: N.x, y: N.y - h }, Et = { x: E.x, y: E.y - h }, St = { x: S.x, y: S.y - h }, Wt = { x: W.x, y: W.y - h };
+    b._poly = [E, S, W, Wt, Nt, Et];
     if (b.ruin) {
-      this._face(E, Sp, h, "#7c7f88"); this._face(Sp, Wp, h, "#62656e");
-      this._quad([{ x: N.x, y: N.y - h }, { x: E.x, y: E.y - h }, { x: Sp.x, y: Sp.y - h }, { x: Wp.x, y: Wp.y - h }], "#9a9da6");
-      this._glass(E, Sp, h, "rr" + b.gx, [45, 60, 55]); this._glass(Sp, Wp, h, "rl" + b.gy, [45, 50, 48]);
+      this._face(E, S, h, "#7c7f88"); this._face(S, W, h, "#62656e");
+      this._quad([Nt, Et, St, Wt], "#9a9da6");
+      this._glass(E, S, h, "rr" + b.gx, [45, 55, 56]); this._glass(S, W, h, "rl" + b.gy, [45, 46, 50]);
     } else {
-      this._face(E, Sp, h, colHSL(b.col, -6)); this._face(Sp, Wp, h, colHSL(b.col, -16));
-      this._quad([{ x: N.x, y: N.y - h }, { x: E.x, y: E.y - h }, { x: Sp.x, y: Sp.y - h }, { x: Wp.x, y: Wp.y - h }], colHSL(b.col, 9));
-      this._glass(E, Sp, h, b.track.name + "R", b.col); this._glass(Sp, Wp, h, b.track.name + "L", b.col);
-      if (p > 0.92) this._roof(b, C, N, E, Sp, Wp, h);
+      this._face(E, S, h, colHSL(b.col, -6)); this._face(S, W, h, colHSL(b.col, -16));
+      this._quad([Nt, Et, St, Wt], colHSL(b.col, 9));
+      this._glass(E, S, h, b.track.name + "R", b.col); this._glass(S, W, h, b.track.name + "L", b.col);
+      // crisp low-poly edges
+      ctx.strokeStyle = colHSL(b.col, -34); ctx.lineWidth = 1;
+      ctx.beginPath(); b._poly.forEach((pt, i) => i ? ctx.lineTo(pt.x, pt.y) : ctx.moveTo(pt.x, pt.y)); ctx.closePath(); ctx.stroke();
+      const seg = (a, z) => { ctx.beginPath(); ctx.moveTo(a.x, a.y); ctx.lineTo(z.x, z.y); ctx.stroke(); };
+      seg(S, St); seg(Et, St); seg(Wt, St);
+      if (p > 0.92) this._roof(b, { x: C.x, y: C.y - ph - h }, Nt, Et, St, Wt, ph + h);
     }
     if (this.hover === b) { ctx.strokeStyle = "rgba(255,255,255,.95)"; ctx.lineWidth = 2; ctx.beginPath(); b._poly.forEach((pt, i) => i ? ctx.lineTo(pt.x, pt.y) : ctx.moveTo(pt.x, pt.y)); ctx.closePath(); ctx.stroke(); }
-    if (b.isTallest && p > 0.92) { ctx.strokeStyle = colHSL(b.accent); ctx.lineWidth = 2; ctx.beginPath(); ctx.moveTo(C.x, C.y - h); ctx.lineTo(C.x, C.y - h - 16 * this.scale); ctx.stroke(); ctx.fillStyle = colHSL(b.accent, (Math.floor(now / 500) % 2) ? 10 : -25); ctx.beginPath(); ctx.arc(C.x, C.y - h - 18 * this.scale, 3, 0, 7); ctx.fill(); }
-    if (p > 0.85) { ctx.fillStyle = "#1d2740"; ctx.font = `700 ${Math.round(10 * Math.max(0.85, this.scale))}px system-ui,sans-serif`; ctx.textAlign = "center"; ctx.fillText(short(b.track.play_count), C.x, N.y - h - 6); }
+    if (b.isTallest && p > 0.92) { ctx.strokeStyle = colHSL(b.accent); ctx.lineWidth = 2; ctx.beginPath(); ctx.moveTo(C.x, Nt.y); ctx.lineTo(C.x, Nt.y - 18 * this.scale); ctx.stroke(); ctx.fillStyle = colHSL(b.accent, (Math.floor(now / 500) % 2) ? 8 : -22); ctx.beginPath(); ctx.arc(C.x, Nt.y - 20 * this.scale, 3.2, 0, 7); ctx.fill(); }
+    if (p > 0.85) { ctx.fillStyle = "#13203a"; ctx.font = `700 ${Math.round(11 * Math.max(0.85, this.scale))}px system-ui,sans-serif`; ctx.textAlign = "center"; ctx.fillText(short(b.track.play_count), C.x, Nt.y - 24 * this.scale); }
   }
 
-  _roof(b, C, N, E, Sp, Wp, h) {
-    const Nt = { x: N.x, y: N.y - h }, Et = { x: E.x, y: E.y - h }, St = { x: Sp.x, y: Sp.y - h }, Wt = { x: Wp.x, y: Wp.y - h };
+  _roof(b, apex0, Nt, Et, St, Wt, topElev) {
     if (b.style === 1) {                                   // pyramid / tent roof
-      const rh = 14 * this.scale + b.f * 16, apex = { x: C.x, y: C.y - h - rh };
-      this._tri(Nt, Et, apex, colHSL(b.col, 2)); this._tri(Wt, Nt, apex, colHSL(b.col, -2));
-      this._tri(Et, St, apex, colHSL(b.col, -10)); this._tri(St, Wt, apex, colHSL(b.col, -20));
+      const rh = 16 * this.scale + b.f * 18, apex = { x: apex0.x, y: apex0.y - rh };
+      this._tri(Nt, Et, apex, colHSL(b.col, 3)); this._tri(Wt, Nt, apex, colHSL(b.col, -1));
+      this._tri(Et, St, apex, colHSL(b.col, -11)); this._tri(St, Wt, apex, colHSL(b.col, -21));
     } else if (b.style === 2) {                            // single setback
-      this._boxAt(b.gx, b.gy, b.f * 0.6, b.f * 0.6, h, 16 * this.scale, b.col);
+      this._boxAt(b.gx, b.gy, b.f * 0.62, b.f * 0.62, topElev, 18 * this.scale, b.col);
     } else if (b.style === 3) {                            // two-step ziggurat
-      this._boxAt(b.gx, b.gy, b.f * 0.66, b.f * 0.66, h, 12 * this.scale, b.col);
-      this._boxAt(b.gx, b.gy, b.f * 0.36, b.f * 0.36, h + 12 * this.scale, 12 * this.scale, b.col);
-    } else {                                               // flat: accent parapet + rooftop unit
-      this._boxAt(b.gx - b.f * 0.4, b.gy - b.f * 0.4, b.f * 0.22, b.f * 0.22, h, 7 * this.scale, b.col);
+      this._boxAt(b.gx, b.gy, b.f * 0.68, b.f * 0.68, topElev, 13 * this.scale, b.col);
+      this._boxAt(b.gx, b.gy, b.f * 0.38, b.f * 0.38, topElev + 13 * this.scale, 13 * this.scale, b.col);
+    } else {                                               // flat roof: rooftop unit
+      this._boxAt(b.gx - b.f * 0.4, b.gy - b.f * 0.4, b.f * 0.22, b.f * 0.22, topElev, 9 * this.scale, b.col);
     }
   }
 
