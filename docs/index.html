@@ -4,81 +4,51 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Stream City — Stream Consolidator Demo</title>
-  <link rel="preconnect" href="https://fonts.googleapis.com">
-  <link href="https://fonts.googleapis.com/css2?family=Press+Start+2P&display=swap" rel="stylesheet">
   <style>
-    :root { --neon: #2bd9c0; --pink: #ff7eb6; }
+    :root { --ink: #1d2740; --muted: #5a6678; --accent: #2bb1a8; --line: #e2e7ef; }
     * { box-sizing: border-box; }
     body {
-      margin: 0; padding: 0 1rem 3rem; color: #e8e6f5;
-      background: #0e0b1e radial-gradient(circle at 50% -10%, #25204a 0%, #0e0b1e 60%);
-      font-family: "Courier New", monospace; line-height: 1.5; min-height: 100vh;
+      margin: 0; padding: 0 1rem 3rem; color: var(--ink);
+      background: linear-gradient(180deg, #eef3f9 0%, #e7edf5 100%); min-height: 100vh;
+      font-family: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; line-height: 1.5;
     }
-    .wrap { max-width: 880px; margin: 0 auto; }
-    h1 {
-      font-family: "Press Start 2P", monospace; font-size: 1.1rem; letter-spacing: 1px;
-      color: var(--neon); text-shadow: 2px 2px 0 #1b1640, 0 0 12px rgba(43,217,192,.4);
-      margin: 1.6rem 0 .3rem;
-    }
-    .tag { color: #b9b4e0; font-size: .9rem; margin: 0 0 1rem; }
-    .demo-banner {
-      background: #19143a; border: 2px solid #3a2f6b; color: #d7d2ff;
-      padding: .7rem .9rem; border-radius: 6px; font-size: .85rem; margin: 1rem 0;
-    }
+    .wrap { max-width: 900px; margin: 0 auto; }
+    h1 { font-size: 1.5rem; font-weight: 800; letter-spacing: -.01em; margin: 1.6rem 0 .25rem; }
+    .tag { color: var(--muted); margin: 0 0 1rem; font-size: .95rem; }
+    .demo-banner { background: #eaf6f5; border: 1px solid #bfe6e1; color: #15514c; padding: .7rem .9rem; border-radius: 10px; font-size: .88rem; margin: 1rem 0; }
     form { display: flex; gap: .5rem; margin: 1rem 0 .5rem; }
-    input[type=text] {
-      flex: 1; padding: .65rem .8rem; font-size: 1rem; color: #fff;
-      background: #120e2b; border: 2px solid #3a2f6b; border-radius: 6px; font-family: "Courier New", monospace;
-    }
-    input[type=text]:focus { outline: none; border-color: var(--neon); }
-    button {
-      padding: .65rem 1rem; font-family: "Press Start 2P", monospace; font-size: .7rem;
-      border: 0; border-radius: 6px; background: var(--neon); color: #06231f; cursor: pointer;
-      box-shadow: 0 3px 0 #138a7c;
-    }
-    button:active { transform: translateY(2px); box-shadow: 0 1px 0 #138a7c; }
-    .examples { font-size: .82rem; color: #b9b4e0; margin: .2rem 0 1rem; }
-    .examples a { color: var(--neon); cursor: pointer; text-decoration: none; border-bottom: 1px dotted; }
+    input[type=text] { flex: 1; padding: .7rem .85rem; font-size: 1rem; color: var(--ink); background: #fff; border: 1px solid #cfd6e2; border-radius: 10px; }
+    input[type=text]:focus { outline: none; border-color: var(--accent); box-shadow: 0 0 0 3px rgba(43,177,168,.18); }
+    button { padding: .7rem 1.2rem; font-size: .95rem; font-weight: 700; border: 0; border-radius: 10px; background: var(--accent); color: #fff; cursor: pointer; box-shadow: 0 2px 6px rgba(43,177,168,.35); }
+    button:active { transform: translateY(1px); }
+    .examples { font-size: .85rem; color: var(--muted); margin: .2rem 0 1rem; }
+    .examples a { color: var(--accent); cursor: pointer; text-decoration: none; border-bottom: 1px dotted; }
 
-    .stage { position: relative; border: 3px solid #3a2f6b; border-radius: 8px; overflow: hidden; box-shadow: 0 8px 30px rgba(0,0,0,.5); }
-    #city { display: block; width: 100%; height: 500px; image-rendering: pixelated; }
-    /* CRT scanlines */
-    .stage::after {
-      content: ""; position: absolute; inset: 0; pointer-events: none;
-      background: repeating-linear-gradient(rgba(0,0,0,0) 0 2px, rgba(0,0,0,.12) 2px 3px);
-      mix-blend-mode: multiply;
-    }
-    #tip {
-      position: fixed; display: none; z-index: 10; pointer-events: none;
-      background: #120e2b; border: 2px solid var(--neon); color: #fff;
-      padding: .4rem .6rem; border-radius: 6px; font-size: .82rem; max-width: 240px;
-    }
+    .stage { position: relative; border-radius: 14px; overflow: hidden; box-shadow: 0 12px 34px rgba(20,35,60,.18); }
+    #city { display: block; width: 100%; height: 500px; }
+    #tip { position: fixed; display: none; z-index: 10; pointer-events: none; background: #1d2740; color: #fff; padding: .45rem .65rem; border-radius: 8px; font-size: .82rem; max-width: 240px; box-shadow: 0 6px 16px rgba(0,0,0,.25); }
 
-    .scoreboard {
-      margin-top: 1.2rem; background: #120e2b; border: 2px solid #3a2f6b; border-radius: 8px;
-      padding: 1rem 1.2rem; text-align: center;
-    }
-    .sb-label { font-family: "Press Start 2P", monospace; font-size: .6rem; color: var(--pink); letter-spacing: 2px; }
-    .sb-total { font-family: "Press Start 2P", monospace; font-size: 1.5rem; color: var(--neon); margin: .5rem 0; text-shadow: 0 0 12px rgba(43,217,192,.5); word-break: break-all; }
-    .sb-sub { color: #b9b4e0; font-size: .82rem; }
-
-    .note { background: #2a2410; border: 1px solid #6b5b1f; color: #ffe39a; padding: .5rem .8rem; border-radius: 6px; font-size: .85rem; margin: .5rem 0; }
-    .error { background: #2a1018; border: 2px solid #7a1e34; color: #ffb3c4; padding: .8rem 1rem; border-radius: 6px; }
-    .muted { color: #b9b4e0; font-size: .85rem; }
+    .scoreboard { margin-top: 1.2rem; background: #fff; border: 1px solid var(--line); border-radius: 14px; padding: 1.1rem 1.2rem; text-align: center; box-shadow: 0 6px 18px rgba(20,35,60,.06); }
+    .sb-label { font-size: .72rem; font-weight: 700; letter-spacing: .14em; color: var(--accent); }
+    .sb-total { font-size: 2.1rem; font-weight: 800; margin: .35rem 0; letter-spacing: -.01em; word-break: break-all; }
+    .sb-sub { color: var(--muted); font-size: .85rem; }
+    .note { background: #fff6e6; border: 1px solid #f0d9a6; color: #6b4f12; padding: .55rem .85rem; border-radius: 10px; font-size: .85rem; margin: .55rem 0; }
+    .error { background: #fdeef0; border: 1px solid #f3c2cb; color: #8a1e33; padding: .8rem 1rem; border-radius: 10px; }
+    .muted { color: var(--muted); font-size: .85rem; }
     details { margin-top: .6rem; }
-    summary { cursor: pointer; color: var(--neon); font-size: .85rem; }
-    table { width: 100%; border-collapse: collapse; margin-top: .6rem; font-size: .88rem; }
-    th, td { text-align: left; padding: .4rem .5rem; border-bottom: 1px solid #2e2750; }
+    summary { cursor: pointer; color: var(--accent); font-size: .88rem; }
+    table { width: 100%; border-collapse: collapse; margin-top: .6rem; font-size: .9rem; }
+    th, td { text-align: left; padding: .45rem .55rem; border-bottom: 1px solid var(--line); }
     td.num, th.num { text-align: right; font-variant-numeric: tabular-nums; }
-    .na { color: #ff8a8a; }
-    footer { margin-top: 2rem; font-size: .78rem; color: #8a85b0; }
-    footer a { color: var(--neon); }
+    .na { color: #c0445a; }
+    footer { margin-top: 2rem; font-size: .8rem; color: var(--muted); }
+    footer a { color: var(--accent); }
   </style>
 </head>
 <body>
   <div class="wrap">
-    <h1>🌆 STREAM CITY</h1>
-    <p class="tag">Isometric city by district — each artist with 5+ tracks gets a named neighbourhood; buildings scale with streams, cars roam the avenues. Move your mouse for a 3D tilt.</p>
+    <h1>🏙️ Stream City</h1>
+    <p class="tag">Low-poly city by district — each artist with 5+ tracks gets a themed neighbourhood; buildings scale with streams, cars cruise the avenues. Move your mouse for a 3D tilt.</p>
 
     <div class="demo-banner">
       🧪 <strong>Demo mode (static).</strong> Runs in your browser with <strong>mock data</strong>:
@@ -87,7 +57,7 @@
 
     <form id="form">
       <input type="text" id="link" placeholder="https://open.spotify.com/playlist/… or spotify:playlist:…" autofocus>
-      <button type="submit">BUILD CITY</button>
+      <button type="submit">Build city</button>
     </form>
     <p class="examples">
       Try:
@@ -101,11 +71,10 @@
     <div id="out"></div>
 
     <footer>
-      Pixel-city demo of the <a href="https://github.com/Kazza2115/Streams-Tracker">Stream Consolidator</a>.
-      Hover a building for its exact count.
+      Low-poly demo of the <a href="https://github.com/Kazza2115/Streams-Tracker">Stream Consolidator</a>. Hover a building for its exact count.
     </footer>
   </div>
 
-  <script src="city.js?v=districts2"></script>
+  <script src="city.js?v=lowpoly1"></script>
 </body>
 </html>
