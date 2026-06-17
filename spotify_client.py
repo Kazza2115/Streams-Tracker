@@ -4,18 +4,24 @@ Everything here is undocumented and fragile by design (see CLAUDE.md). All the
 volatile constants live at the top, so when Spotify ships a change this is the
 single place to update.
 
-Auth: derived from your logged-in web session's `sp_dc` cookie (read from the
-SP_DC env var — never hardcode or commit it). The cookie is exchanged for a
-short-lived bearer token, which is then sent to the pathfinder GraphQL endpoint.
+As of this version Spotify uses **pathfinder v2**: requests are HTTP **POST** to
+`/pathfinder/v2/query` with a JSON body carrying `operationName`, `variables`
+and `extensions.persistedQuery.sha256Hash` (the older v1 put these in the URL
+query string). Auth is a bearer token derived from the `sp_dc` cookie, and v2
+often also wants a `client-token` header.
 
-Persisted-query hashes ROTATE. If pathfinder starts returning HTTP 400, capture
-fresh hashes from the web player (DevTools → Network → filter "pathfinder" →
-read extensions.persistedQuery.sha256Hash for each operation) and update
-QUERY_HASHES below, or pass them via the SP_HASH_* env vars.
+Everything volatile is overridable via env vars so you can adjust without code
+edits after capturing a real request (DevTools → Network → a `pathfinder/v2/query`
+request → **Payload** tab):
+  - SP_DC                     the sp_dc cookie (required)
+  - SP_HASH_FETCH_PLAYLIST    persisted-query sha256 for the playlist op
+  - SP_HASH_GET_ALBUM         persisted-query sha256 for the album op
+  - SP_OP_FETCH_PLAYLIST      operation name (default "fetchPlaylist")
+  - SP_OP_GET_ALBUM           operation name (default "getAlbum")
+  - SP_CLIENT_TOKEN           value for the client-token header (if required)
+  - SP_TOKEN_URL / SP_PATHFINDER_URL  override endpoints if they move
 
-NOTE: the response-shape parsing here follows the current web-player schema but
-is UNVERIFIED against live Spotify in this sandbox. Adjust _parse_* helpers
-after a real capture if a field has moved.
+If pathfinder returns HTTP 400, a hash/op name has rotated — recapture and update.
 """
 from __future__ import annotations
 
@@ -27,16 +33,19 @@ from typing import Optional
 
 import requests
 
-# --- Volatile constants -----------------------------------------------------
-TOKEN_URL = "https://open.spotify.com/get_access_token"
+# --- Volatile constants (override via env) ----------------------------------
+TOKEN_URL = os.getenv("SP_TOKEN_URL", "https://open.spotify.com/get_access_token")
 TOKEN_PARAMS = {"reason": "transport", "productType": "web-player"}
-PATHFINDER_URL = "https://api-partner.spotify.com/pathfinder/v1/query"
+PATHFINDER_URL = os.getenv("SP_PATHFINDER_URL", "https://api-partner.spotify.com/pathfinder/v2/query")
 USER_AGENT = (
     "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
     "(KHTML, like Gecko) Chrome/123.0 Safari/537.36"
 )
-# Persisted-query SHA-256 hashes. These rotate; override via the SP_HASH_* env
-# vars without editing code. Empty => the client raises a clear, actionable error.
+# Operation name -> persisted-query hash. Both rotate; set via env.
+OPERATIONS = {
+    "fetchPlaylist": os.getenv("SP_OP_FETCH_PLAYLIST", "fetchPlaylist"),
+    "getAlbum": os.getenv("SP_OP_GET_ALBUM", "getAlbum"),
+}
 QUERY_HASHES = {
     "fetchPlaylist": os.getenv("SP_HASH_FETCH_PLAYLIST", ""),
     "getAlbum": os.getenv("SP_HASH_GET_ALBUM", ""),
@@ -57,7 +66,7 @@ class PlaylistData:
 
 
 class SpotifyClient:
-    def __init__(self, sp_dc: str, hashes: Optional[dict] = None):
+    def __init__(self, sp_dc: str, hashes: Optional[dict] = None, client_token: str = ""):
         if not sp_dc:
             raise SpotifyError(
                 "Missing SP_DC cookie. Set the SP_DC env var to your web "
@@ -65,6 +74,7 @@ class SpotifyClient:
             )
         self._sp_dc = sp_dc
         self._hashes = {**QUERY_HASHES, **(hashes or {})}
+        self._client_token = client_token
         self._token: Optional[str] = None
         self._token_expiry_ms: int = 0
         self._session = requests.Session()
@@ -74,7 +84,7 @@ class SpotifyClient:
 
     @classmethod
     def from_env(cls) -> "SpotifyClient":
-        return cls(sp_dc=os.getenv("SP_DC", ""))
+        return cls(sp_dc=os.getenv("SP_DC", ""), client_token=os.getenv("SP_CLIENT_TOKEN", ""))
 
     # --- auth ---------------------------------------------------------------
     def _access_token(self) -> str:
@@ -83,70 +93,61 @@ class SpotifyClient:
             return self._token
         try:
             r = self._session.get(
-                TOKEN_URL,
-                params=TOKEN_PARAMS,
-                headers={"Cookie": f"sp_dc={self._sp_dc}"},
-                timeout=15,
+                TOKEN_URL, params=TOKEN_PARAMS,
+                headers={"Cookie": f"sp_dc={self._sp_dc}"}, timeout=15,
             )
         except requests.RequestException as e:
             raise SpotifyError(f"Could not reach Spotify token endpoint: {e}") from e
         if r.status_code != 200:
             raise SpotifyError(
                 f"Token endpoint returned HTTP {r.status_code}; the sp_dc cookie "
-                "may be invalid or expired."
+                "may be invalid/expired, or the token now requires a TOTP param."
             )
         data = r.json()
         if data.get("isAnonymous", True) or not data.get("accessToken"):
             raise SpotifyError(
                 "Spotify treated the session as anonymous — the sp_dc cookie is "
-                "invalid or expired. Grab a fresh one while logged in."
+                "invalid/expired, or a TOTP is now required for the token."
             )
         self._token = data["accessToken"]
-        self._token_expiry_ms = int(
-            data.get("accessTokenExpirationTimestampMs", now_ms + 3_000_000)
-        )
+        self._token_expiry_ms = int(data.get("accessTokenExpirationTimestampMs", now_ms + 3_000_000))
         return self._token
 
-    # --- pathfinder ---------------------------------------------------------
-    def _query(self, operation: str, variables: dict) -> dict:
-        sha = self._hashes.get(operation)
+    # --- pathfinder v2 (POST) ----------------------------------------------
+    def _query(self, op_key: str, variables: dict) -> dict:
+        sha = self._hashes.get(op_key)
         if not sha:
             raise SpotifyError(
-                f"No persisted-query hash for {operation!r}. Capture it from the "
-                f"web player and set SP_HASH_{_env_suffix(operation)} "
-                "(see this module's docstring)."
+                f"No persisted-query hash for {op_key!r}. Capture it from a "
+                f"pathfinder/v2 request's Payload and set SP_HASH_{_env_suffix(op_key)}."
             )
-        params = {
-            "operationName": operation,
-            "variables": json.dumps(variables, separators=(",", ":")),
-            "extensions": json.dumps(
-                {"persistedQuery": {"version": 1, "sha256Hash": sha}},
-                separators=(",", ":"),
-            ),
+        body = {
+            "variables": variables,
+            "operationName": OPERATIONS.get(op_key, op_key),
+            "extensions": {"persistedQuery": {"version": 1, "sha256Hash": sha}},
         }
+        headers = {"Authorization": f"Bearer {self._access_token()}", "Content-Type": "application/json"}
+        if self._client_token:
+            headers["client-token"] = self._client_token
         try:
-            r = self._session.get(
-                PATHFINDER_URL,
-                params=params,
-                headers={"Authorization": f"Bearer {self._access_token()}"},
-                timeout=20,
-            )
+            r = self._session.post(PATHFINDER_URL, data=json.dumps(body), headers=headers, timeout=25)
         except requests.RequestException as e:
             raise SpotifyError(f"Pathfinder request failed: {e}") from e
         if r.status_code == 400:
             raise SpotifyError(
-                f"Pathfinder returned HTTP 400 for {operation!r} — the persisted-"
-                "query hash has likely rotated. Update QUERY_HASHES / SP_HASH_*."
+                f"Pathfinder HTTP 400 for {op_key!r} — the persisted-query hash or "
+                "operation name has likely rotated. Recapture and update the env vars."
             )
-        if r.status_code == 401:
-            raise SpotifyError("Pathfinder returned HTTP 401 — token rejected.")
-        if r.status_code != 200:
+        if r.status_code in (401, 403):
             raise SpotifyError(
-                f"Pathfinder returned HTTP {r.status_code} for {operation!r}."
+                f"Pathfinder HTTP {r.status_code} — token/client-token rejected. v2 "
+                "may require a valid SP_CLIENT_TOKEN header."
             )
+        if r.status_code != 200:
+            raise SpotifyError(f"Pathfinder returned HTTP {r.status_code} for {op_key!r}.")
         payload = r.json()
         if payload.get("errors"):
-            raise SpotifyError(f"Pathfinder error for {operation!r}: {payload['errors']}")
+            raise SpotifyError(f"Pathfinder error for {op_key!r}: {payload['errors']}")
         return payload.get("data", {})
 
     # --- high-level reads ---------------------------------------------------
@@ -159,16 +160,13 @@ class SpotifyClient:
         stubs: list = []
         offset = 0
         while True:
-            data = self._query(
-                "fetchPlaylist",
-                {"uri": uri, "offset": offset, "limit": PLAYLIST_PAGE_SIZE},
-            )
-            pl = data.get("playlistV2") or {}
+            data = self._query("fetchPlaylist", {"uri": uri, "offset": offset, "limit": PLAYLIST_PAGE_SIZE})
+            pl = data.get("playlistV2") or data.get("playlist") or {}
             name = name or (pl.get("name") or "Playlist")
             content = pl.get("content") or {}
             items = content.get("items") or []
             for it in items:
-                td = (((it or {}).get("itemV2") or {}).get("data")) or {}
+                td = (((it or {}).get("itemV2") or it.get("item") or {}).get("data")) or {}
                 if td.get("__typename") not in (None, "Track"):
                     continue  # skip episodes / local / unavailable items
                 artists = ", ".join(
@@ -177,12 +175,9 @@ class SpotifyClient:
                 ) or "Unknown"
                 stubs.append(
                     TrackCount(
-                        name=td.get("name", "Unknown"),
-                        artists=artists,
-                        play_count=None,
+                        name=td.get("name", "Unknown"), artists=artists, play_count=None,
                         track_id=_id_from_uri(td.get("uri", "")),
-                        album_id=_id_from_uri((td.get("albumOfTrack") or {}).get("uri", ""))
-                        or None,
+                        album_id=_id_from_uri((td.get("albumOfTrack") or {}).get("uri", "")) or None,
                     )
                 )
             total = content.get("totalCount") or 0
@@ -197,11 +192,8 @@ class SpotifyClient:
         counts: dict[str, int] = {}
         offset = 0
         while True:
-            data = self._query(
-                "getAlbum",
-                {"uri": uri, "locale": "", "offset": offset, "limit": ALBUM_PAGE_SIZE},
-            )
-            album = data.get("albumUnion") or {}
+            data = self._query("getAlbum", {"uri": uri, "locale": "", "offset": offset, "limit": ALBUM_PAGE_SIZE})
+            album = data.get("albumUnion") or data.get("album") or {}
             tracks = album.get("tracks") or {}
             items = tracks.get("items") or []
             for it in items:

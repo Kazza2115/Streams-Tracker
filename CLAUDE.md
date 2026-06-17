@@ -58,9 +58,12 @@ resolved are excluded and the result is flagged `partial`.
   The visualization is offline-proven via mock; only the live Spotify fetch is
   unverified (next bullet).
 - **Implemented but not verified against live Spotify:** `SpotifyProvider` playlist path
-  and `spotify_client` (token exchange, `fetchPlaylist`, `getAlbum`). Needs `SP_DC` and
-  current `QUERY_HASHES` (`SP_HASH_FETCH_PLAYLIST`, `SP_HASH_GET_ALBUM`). The pathfinder
-  response-shape parsing is best-effort and may need adjustment after a live capture.
+  and `spotify_client`. Spotify moved to **pathfinder v2** (HTTP POST, body carries
+  `operationName`/`variables`/`sha256Hash`); the client now POSTs to v2 and supports an
+  optional `client-token` header. Needs `SP_DC` + current hashes (`SP_HASH_FETCH_PLAYLIST`,
+  `SP_HASH_GET_ALBUM`), possibly `SP_CLIENT_TOKEN` and `SP_OP_*` (op names), all overridable
+  via env. Token exchange may now require a TOTP param. Response-shape parsing is best-effort
+  and may need adjustment after a live capture.
 - **Not done yet:** album & artist entities, and `SongstatsProvider` (phase-2 stub,
   raises `NotImplementedError`).
 
