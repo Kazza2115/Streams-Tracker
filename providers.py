@@ -103,17 +103,27 @@ class MockProvider(StreamProvider):
 
     name = "mock"
 
-    # A small, varied playlist: a couple of huge hits (the "skyscrapers"), some
-    # mid-tier tracks, and one track with no count (e.g. a local/unavailable
-    # item) to exercise the partial-total path.
+    # A varied playlist that exercises the demo's "districts": artists with more
+    # than 4 tracks (Drake, Radiohead) form their own neighbourhoods; the rest
+    # (M83, Tame Impala) plus one no-count track land in a shared downtown.
     _PLAYLIST_TRACKS = [
+        # Drake — own district (6 tracks)
         TrackCount("One Dance", "Drake", 2_950_000_000, "t1", "alb_a"),
-        TrackCount("The Less I Know the Better", "Tame Impala", 2_100_000_000, "t2", "alb_b"),
-        TrackCount("Midnight City", "M83", 612_004_511, "t3", "alb_c"),
-        TrackCount("Outro", "M83", 158_223_004, "t4", "alb_c"),
-        TrackCount("Reckoner", "Radiohead", 142_991_233, "t5", "alb_d"),
-        TrackCount("Nude", "Radiohead", 121_044_872, "t6", "alb_d"),
-        TrackCount("Local Demo Take", "Unknown", None, "t7", None),
+        TrackCount("God's Plan", "Drake", 2_300_000_000, "t2", "alb_a"),
+        TrackCount("Hotline Bling", "Drake", 1_600_000_000, "t3", "alb_b"),
+        TrackCount("Passionfruit", "Drake", 1_150_000_000, "t4", "alb_c"),
+        TrackCount("Nice For What", "Drake", 1_050_000_000, "t5", "alb_d"),
+        TrackCount("Started From the Bottom", "Drake", 720_000_000, "t6", "alb_e"),
+        # Radiohead — own district (5 tracks)
+        TrackCount("Creep", "Radiohead", 1_250_000_000, "t7", "alb_f"),
+        TrackCount("Karma Police", "Radiohead", 920_000_000, "t8", "alb_g"),
+        TrackCount("No Surprises", "Radiohead", 880_000_000, "t9", "alb_g"),
+        TrackCount("Reckoner", "Radiohead", 142_991_233, "t10", "alb_h"),
+        TrackCount("Nude", "Radiohead", 121_044_872, "t11", "alb_h"),
+        # Downtown — artists with few tracks + one no-count item
+        TrackCount("The Less I Know the Better", "Tame Impala", 2_100_000_000, "t12", "alb_i"),
+        TrackCount("Midnight City", "M83", 612_004_511, "t13", "alb_j"),
+        TrackCount("Local Demo Take", "Unknown", None, "t14", None),
     ]
 
     def get_streams(self, entity_type: str, entity_id: str) -> StreamResult:
