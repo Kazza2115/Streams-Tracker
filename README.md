@@ -82,6 +82,25 @@ from real per-track counts. (GitHub Pages can only ever show the mock demo — r
 counts require this server, which is why you run it locally.) Large playlists can
 take a while: counts are resolved by fetching each distinct album once.
 
+## Deploy to Render (hosted, public URL)
+
+A [`render.yaml`](render.yaml) blueprint is included. The three Spotify secrets
+are marked `sync: false`, so Render prompts for them in the dashboard — they are
+never committed.
+
+1. Sign up at <https://render.com> (free) and connect your GitHub.
+2. **New → Blueprint**, pick this repo and the `claude/laughing-rubin-fm8819`
+   branch. Render reads `render.yaml`.
+3. When prompted, paste the secret values: `SP_DC`, `SP_HASH_FETCH_PLAYLIST`,
+   `SP_HASH_GET_ALBUM` (see the section above for how to capture them).
+4. Apply / deploy, wait for the build, then open the service URL and paste a
+   playlist.
+
+Caveats: the free plan cold-starts after inactivity (first request is slow);
+requests from a datacenter IP may be throttled/blocked by Spotify more than a
+home connection; and the query hashes rotate — update the env vars (and redeploy)
+when pathfinder starts returning HTTP 400.
+
 ## Guardrails
 
 - **Never commit** `SP_DC` or any key. Env vars only.

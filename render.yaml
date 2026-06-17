@@ -1,0 +1,22 @@
+# Render Blueprint — deploys the Flask app with real Spotify counts.
+# Secrets (sync: false) are entered in the Render dashboard, never committed.
+services:
+  - type: web
+    name: stream-city
+    runtime: python
+    plan: free
+    branch: claude/laughing-rubin-fm8819
+    buildCommand: pip install -r requirements.txt
+    # long timeout: large playlists resolve many albums sequentially
+    startCommand: gunicorn app:app --bind 0.0.0.0:$PORT --workers 1 --timeout 180
+    envVars:
+      - key: SOURCE
+        value: spotify
+      - key: PYTHON_VERSION
+        value: "3.11.9"
+      - key: SP_DC
+        sync: false                 # paste your sp_dc cookie in the dashboard
+      - key: SP_HASH_FETCH_PLAYLIST
+        sync: false                 # pathfinder persisted-query hash (rotates)
+      - key: SP_HASH_GET_ALBUM
+        sync: false                 # pathfinder persisted-query hash (rotates)
