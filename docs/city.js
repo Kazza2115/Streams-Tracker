@@ -153,6 +153,7 @@ class CanvasCity {
     this.districts = []; this.buildings = []; this.trees = []; this.cars = []; this.walkers = []; this.signs = [];
     this.gMinX = -2.5; this.gMaxX = 3.5; this.gMinY = -2.5; this.gMaxY = 3.5;
     this.vAv = [-1.5, 1.5]; this.hAv = [-1.5, 1.5];
+    this._buildCarGraph(); this._spawnCars(3);
     this.fit(70); this.camera();
   }
 
@@ -231,10 +232,10 @@ class CanvasCity {
     if (tallest) tallest.isTallest = true;
     this.buildings.sort((a, b) => (a.gx + a.gy) - (b.gx + b.gy));
 
-    // cars on every avenue
-    this.cars = [];
-    this.vAv.forEach((gx, i) => { for (let c = 0; c < 2; c++) this.cars.push(this._mkCar("v", gx, i + c)); });
-    this.hAv.forEach((gy, i) => { for (let c = 0; c < 2; c++) this.cars.push(this._mkCar("h", gy, i + c + 7)); });
+    // cars navigating the avenue grid (turn at junctions, stay in bounds)
+    this._buildCarGraph();
+    const edges = (this.vAv.length - 1) * this.hAv.length + (this.hAv.length - 1) * this.vAv.length;
+    this._spawnCars(Math.max(4, Math.min(8, edges)));
 
     // one citizen per artist, strolling their own district
     const seen = new Set();
@@ -254,11 +255,27 @@ class CanvasCity {
     this.camera();
   }
 
-  _mkCar(axis, line, seed) {
-    const span = axis === "v" ? [this.gMinY, this.gMaxY] : [this.gMinX, this.gMaxX];
-    const dir = rand01("cdir" + seed) < 0.5 ? 1 : -1;
-    return { axis, line: line + (dir > 0 ? 0.22 : -0.22), pos: span[0] + rand01("cpos" + seed) * (span[1] - span[0]),
-      dir, speed: 1.1 + rand01("csp" + seed) * 1.0, color: CAR_COLORS[hashStr("car" + seed) % CAR_COLORS.length], gx: 0, gy: 0 };
+  _buildCarGraph() {
+    this.carCols = this.vAv.length;
+    this.carNodes = [];
+    for (let j = 0; j < this.hAv.length; j++) for (let i = 0; i < this.vAv.length; i++) this.carNodes.push({ gx: this.vAv[i], gy: this.hAv[j] });
+  }
+  _carNeighbors(idx) {
+    const C = this.carCols, i = idx % C, j = (idx / C) | 0, out = [];
+    if (i > 0) out.push(idx - 1); if (i < C - 1) out.push(idx + 1);
+    if (j > 0) out.push(idx - C); if (j < this.hAv.length - 1) out.push(idx + C);
+    return out;
+  }
+  _spawnCars(count) {
+    this.cars = [];
+    const n = this.carNodes ? this.carNodes.length : 0;
+    if (n < 2) return;
+    for (let k = 0; k < count; k++) {
+      const from = (Math.random() * n) | 0, nb = this._carNeighbors(from);
+      if (!nb.length) continue;
+      this.cars.push({ from, to: nb[(Math.random() * nb.length) | 0], t: Math.random(),
+        speed: 1.0 + Math.random() * 0.8, color: CAR_COLORS[(Math.random() * CAR_COLORS.length) | 0], axis: "h", gx: 0, gy: 0, wait: 0 });
+    }
   }
   _newTarget(w) { w.tgx = w.zone.ox + Math.random() * w.zone.spanX; w.tgy = w.zone.oy + Math.random() * w.zone.spanY; }
 
@@ -444,10 +461,33 @@ class CanvasCity {
   }
 
   _stepCar(c, dt) {
-    const span = c.axis === "v" ? [this.gMinY, this.gMaxY] : [this.gMinX, this.gMaxX];
-    c.pos += c.dir * c.speed * dt;
-    if (c.pos > span[1] + 0.5) c.pos = span[0] - 0.5; if (c.pos < span[0] - 0.5) c.pos = span[1] + 0.5;
-    if (c.axis === "v") { c.gx = c.line; c.gy = c.pos; } else { c.gx = c.pos; c.gy = c.line; }
+    if (c.wait > 0) { c.wait -= dt; return; }                       // brief pause at a junction
+    let A = this.carNodes[c.from], B = this.carNodes[c.to];
+    if (!A || !B) return;
+    c.t += c.speed * dt / Math.max(0.6, Math.hypot(B.gx - A.gx, B.gy - A.gy));
+    if (c.t >= 1) {
+      c.t = 0; const prev = c.from; c.from = c.to;
+      const cur = this.carNodes[c.from], pv = this.carNodes[prev];
+      const dx = Math.sign(cur.gx - pv.gx), dy = Math.sign(cur.gy - pv.gy);
+      let straight = -1; const turns = [];
+      for (const nb of this._carNeighbors(c.from)) {
+        if (nb === prev) continue;
+        const nn = this.carNodes[nb];
+        if (Math.sign(nn.gx - cur.gx) === dx && Math.sign(nn.gy - cur.gy) === dy) straight = nb; else turns.push(nb);
+      }
+      let next;
+      if (straight >= 0 && Math.random() < 0.65) next = straight;        // mostly keep going straight
+      else if (turns.length) next = turns[(Math.random() * turns.length) | 0]; // otherwise turn
+      else next = straight >= 0 ? straight : prev;                       // dead-end: U-turn
+      if (next !== straight && Math.random() < 0.5) c.wait = 0.3 + Math.random() * 0.5;
+      c.to = next;
+      A = this.carNodes[c.from]; B = this.carNodes[c.to];
+    }
+    let gx = A.gx + (B.gx - A.gx) * c.t, gy = A.gy + (B.gy - A.gy) * c.t;
+    const dvx = B.gx - A.gx, dvy = B.gy - A.gy, LANE = 0.16;             // drive on the right
+    if (Math.abs(dvx) >= Math.abs(dvy)) { c.axis = "h"; gy += dvx > 0 ? LANE : -LANE; }
+    else { c.axis = "v"; gx += dvy > 0 ? -LANE : LANE; }
+    c.gx = gx; c.gy = gy;
   }
   _stepWalker(w, dt) {
     const dx = w.tgx - w.gx, dy = w.tgy - w.gy, dist = Math.hypot(dx, dy);
