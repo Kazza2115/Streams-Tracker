@@ -88,7 +88,8 @@ function pointInPoly(px, py, poly) {
 }
 
 const CAR_COLORS = ["#e35d5d", "#5aa7e0", "#f3c64b", "#74c98a", "#d98ad0", "#f2f2f2", "#7d8bd6"];
-const BP = 1.7, AV = 1.9, ZPAD = 0.9, DISTRICT_MIN = 5;
+const BP = 1.7, AV = 1.2, ZPAD = 0.95, DISTRICT_MIN = 5;
+const RINGPAD = 0.86;   // citizen sidewalk ring radius beyond the block edge (clears buildings)
 const dk = (c, d) => [c[0], c[1], Math.max(0, c[2] - d)];
 
 // deterministic theme per artist: palette + roof style
@@ -140,7 +141,7 @@ class CanvasCity {
     const contentLeft = (this.gMinX - this.gMaxY) * this.TW, contentW = ((this.gMaxX - this.gMinY) - (this.gMinX - this.gMaxY)) * this.TW;
     this.originX = (this.W - contentW) / 2 - contentLeft;
     let top = (this.gMinX + this.gMinY) * this.TH;
-    for (const b of this.buildings) { const ty = (b.gx + b.gy) * this.TH - b.targetH - 40 * this.scale; if (ty < top) top = ty; }
+    for (const b of this.buildings) { const ty = (b.gx + b.gy) * this.TH - b.targetH - 50 * this.scale; if (ty < top) top = ty; }
     const bottom = (this.gMaxX + this.gMaxY) * this.TH + 14 * this.scale;
     this.originY = (this.H - (bottom - top)) / 2 - top;
   }
@@ -170,22 +171,19 @@ class CanvasCity {
 
     const maxC = Math.max(1, ...tracks.filter(t => t.play_count != null).map(t => t.play_count));
     this.districts = []; this.buildings = []; this.trees = []; this.signs = []; this.walkers = [];
-    const artistZone = new Map();
 
     defs.forEach((d, di) => {
       const mc = di % metaCols, mr = Math.floor(di / metaCols);
       const ox = mc * stepX, oy = mr * stepY;
       const theme = themeFor(d.artist, d.named);
-      const zone = { ox, oy, spanX, spanY };
       this.districts.push({ ...d, ox, oy, spanX, spanY, theme });
-      artistZone.set(d.artist, zone);
       for (let k = 0; k < zoneCols * zoneRows; k++) {
         const lc = k % zoneCols, lr = Math.floor(k / zoneCols), cx = ox + lc * BP, cy = oy + lr * BP;
         if (k < d.tracks.length) {
           const t = d.tracks[k];
           const jx = (rand01(t.name + "x") - 0.5) * 0.1, jy = (rand01(t.name + "y") - 0.5) * 0.1;
           this.buildings.push({
-            track: t, gx: cx + jx, gy: cy + jy, f: 0.6 + (hashStr(t.name + "f") % 12) / 100,
+            track: t, gx: cx + jx, gy: cy + jy, f: 0.66 + (hashStr(t.name + "f") % 10) / 100,
             ruin: t.play_count == null, pc: t.play_count, maxC,
             col: theme.colors[hashStr(t.name) % theme.colors.length],
             accent: theme.accent, style: theme.style < 0 ? hashStr(t.name) % 4 : theme.style,
@@ -203,11 +201,11 @@ class CanvasCity {
     this.gMinX = this.vAv[0] - AV / 2; this.gMaxX = this.vAv[this.vAv.length - 1] + AV / 2;
     this.gMinY = this.hAv[0] - AV / 2; this.gMaxY = this.hAv[this.hAv.length - 1] + AV / 2;
 
-    this.fit(280);
-    const minH = 64 * this.scale, maxH = this.maxH;
+    this.fit(480);
+    const minH = 120 * this.scale, maxH = this.maxH;
     let tallest = null;
     for (const b of this.buildings) {
-      b.targetH = b.ruin ? 52 * this.scale : minH + (maxH - minH) * Math.pow(b.pc / b.maxC, 0.58);
+      b.targetH = b.ruin ? 95 * this.scale : minH + (maxH - minH) * Math.pow(b.pc / b.maxC, 0.55);
       if (!b.ruin && (!tallest || b.pc > tallest.pc)) tallest = b;
     }
     if (tallest) tallest.isTallest = true;
@@ -216,13 +214,21 @@ class CanvasCity {
     this._buildCarGraph();
     this._spawnCars(Math.max(2, Math.min(4, this.vAv.length + this.hAv.length - 3)));
 
-    const seen = new Set();
-    for (const t of tracks) {
-      const a = t.artists || "Unknown"; if (seen.has(a)) continue; seen.add(a);
-      const zone = artistZone.get(a) || artistZone.get("Downtown");
-      this.walkers.push({ name: a, color: theme_color(a), zone, labelled: byArtist.get(a).length < DISTRICT_MIN,
-        gx: zone.ox + Math.random() * zone.spanX, gy: zone.oy + Math.random() * zone.spanY, tgx: 0, tgy: 0, speed: 0.45 + Math.random() * 0.35, phase: Math.random() * 1000 });
-      this._newTarget(this.walkers[this.walkers.length - 1]);
+    // citizens stroll their district's sidewalk ring, evenly spaced at equal
+    // speed so they keep their distance and never overlap each other
+    const artistDistrict = new Map();
+    for (const d of this.districts) {
+      if (d.named) artistDistrict.set(d.artist, d);
+      else for (const t of d.tracks) { const a = t.artists || "Unknown"; if (!artistDistrict.has(a)) artistDistrict.set(a, d); }
+    }
+    const order = [...new Set(tracks.map(t => t.artists || "Unknown"))];
+    const counts = new Map(), seenW = new Map();
+    for (const a of order) { const d = artistDistrict.get(a) || this.districts[this.districts.length - 1]; counts.set(d, (counts.get(d) || 0) + 1); }
+    this.walkers = [];
+    for (const a of order) {
+      const d = artistDistrict.get(a) || this.districts[this.districts.length - 1];
+      const m = counts.get(d), i = seenW.get(d) || 0; seenW.set(d, i + 1);
+      this.walkers.push({ name: a, color: theme_color(a), district: d, labelled: !d.named, u: (i + 0.5) / m, phase: Math.random() * 1000, _gx: 0, _gy: 0 });
     }
     this.camera();
   }
@@ -246,7 +252,15 @@ class CanvasCity {
         color: CAR_COLORS[(Math.random() * CAR_COLORS.length) | 0], axis: "h", gx: 0, gy: 0, wait: 0 });
     }
   }
-  _newTarget(w) { w.tgx = w.zone.ox + Math.random() * w.zone.spanX; w.tgy = w.zone.oy + Math.random() * w.zone.spanY; }
+  _ringPoint(d, u) {
+    const cx = d.ox + d.spanX / 2, cy = d.oy + d.spanY / 2, rx = d.spanX / 2 + RINGPAD, ry = d.spanY / 2 + RINGPAD;
+    const W = 2 * rx, H = 2 * ry, per = 2 * (W + H);
+    let s = (((u % 1) + 1) % 1) * per;
+    if (s < W) return { gx: cx - rx + s, gy: cy - ry };
+    s -= W; if (s < H) return { gx: cx + rx, gy: cy - ry + s };
+    s -= H; if (s < W) return { gx: cx + rx - s, gy: cy + ry };
+    s -= W; return { gx: cx - rx, gy: cy + ry - s };
+  }
 
   onMove(e) {
     const r = this.canvas.getBoundingClientRect(), mx = e.clientX - r.left, my = e.clientY - r.top;
@@ -318,7 +332,7 @@ class CanvasCity {
     for (const b of this.buildings) items.push({ d: b.gx + b.gy + 0.002, k: "b", r: b });
     for (const t of this.trees) items.push({ d: t.gx + t.gy + 0.001, k: "t", r: t });
     for (const c of this.cars) items.push({ d: c.gx + c.gy, k: "c", r: c });
-    for (const w of this.walkers) items.push({ d: w.gx + w.gy + 0.003, k: "w", r: w });
+    for (const w of this.walkers) items.push({ d: w._gx + w._gy + 0.003, k: "w", r: w });
     for (const s of this.signs) items.push({ d: s.gx + s.gy + 0.5, k: "s", r: s });
     items.sort((a, b) => a.d - b.d);
     for (const it of items) {
@@ -422,7 +436,7 @@ class CanvasCity {
   }
 
   _drawWalker(w, now) {
-    const ctx = this.ctx, g = this.iso(w.gx, w.gy), s = Math.max(2, 2.6 * this.scale), bob = Math.sin(now / 220 + w.phase) * 1.3;
+    const ctx = this.ctx, g = this.iso(w._gx, w._gy), s = Math.max(2, 2.6 * this.scale), bob = Math.sin(now / 220 + w.phase) * 1.3;
     const cx = g.x, top = g.y - 11 * s + bob;
     ctx.fillStyle = "rgba(20,28,40,.22)"; ctx.beginPath(); ctx.ellipse(cx, g.y + 1, 3 * s, 1.2 * s, 0, 0, 7); ctx.fill();
     const swing = Math.sin(now / 150 + w.phase) * 1.4 * s;
@@ -467,9 +481,9 @@ class CanvasCity {
     c.gx = gx; c.gy = gy;
   }
   _stepWalker(w, dt) {
-    const dx = w.tgx - w.gx, dy = w.tgy - w.gy, dist = Math.hypot(dx, dy);
-    if (dist < 0.08) { this._newTarget(w); return; }
-    w.gx += (dx / dist) * w.speed * dt; w.gy += (dy / dist) * w.speed * dt;
+    const d = w.district, rx = d.spanX / 2 + RINGPAD, ry = d.spanY / 2 + RINGPAD, per = 2 * (2 * rx + 2 * ry);
+    w.u = (w.u + 0.5 * dt / per) % 1;                       // constant speed -> spacing preserved
+    const pt = this._ringPoint(d, w.u); w._gx = pt.gx; w._gy = pt.gy;
   }
 }
 
