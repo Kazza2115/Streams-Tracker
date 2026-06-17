@@ -41,16 +41,18 @@ USER_AGENT = (
     "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
     "(KHTML, like Gecko) Chrome/123.0 Safari/537.36"
 )
-# Operation name -> persisted-query hash. Both rotate; set via env.
+# Operation name -> persisted-query hash. Both rotate; set via env. Defaults
+# below are real values captured from the web player (not secrets).
 OPERATIONS = {
-    "fetchPlaylist": os.getenv("SP_OP_FETCH_PLAYLIST", "fetchPlaylist"),
+    "fetchPlaylist": os.getenv("SP_OP_FETCH_PLAYLIST", "fetchPlaylistContents"),
     "getAlbum": os.getenv("SP_OP_GET_ALBUM", "getAlbum"),
 }
 QUERY_HASHES = {
-    "fetchPlaylist": os.getenv("SP_HASH_FETCH_PLAYLIST", ""),
-    "getAlbum": os.getenv("SP_HASH_GET_ALBUM", ""),
+    "fetchPlaylist": os.getenv("SP_HASH_FETCH_PLAYLIST", "a65e12194ed5fc443a1cdebed5fabe33ca5b07b987185d63c72483867ad13cb4"),
+    "getAlbum": os.getenv("SP_HASH_GET_ALBUM", "b9bfabef66ed756e5e13f68a942deb60bd4125ec1f1be8cc42769dc0259b4b10"),
 }
-PLAYLIST_PAGE_SIZE = 100
+LOCALE = os.getenv("SP_LOCALE", "")
+PLAYLIST_PAGE_SIZE = 50
 ALBUM_PAGE_SIZE = 50
 # ---------------------------------------------------------------------------
 
@@ -66,15 +68,15 @@ class PlaylistData:
 
 
 class SpotifyClient:
-    def __init__(self, sp_dc: str, hashes: Optional[dict] = None, client_token: str = ""):
-        if not sp_dc:
+    def __init__(self, sp_dc: str = "", hashes: Optional[dict] = None, client_token: str = "", access_token: str = ""):
+        if not sp_dc and not access_token:
             raise SpotifyError(
-                "Missing SP_DC cookie. Set the SP_DC env var to your web "
-                "session's sp_dc cookie value."
+                "Set SP_DC (sp_dc cookie) or SP_ACCESS_TOKEN (a captured bearer token)."
             )
         self._sp_dc = sp_dc
         self._hashes = {**QUERY_HASHES, **(hashes or {})}
         self._client_token = client_token
+        self._static_token = access_token  # if set, used directly (e.g. a captured token)
         self._token: Optional[str] = None
         self._token_expiry_ms: int = 0
         self._session = requests.Session()
@@ -84,10 +86,16 @@ class SpotifyClient:
 
     @classmethod
     def from_env(cls) -> "SpotifyClient":
-        return cls(sp_dc=os.getenv("SP_DC", ""), client_token=os.getenv("SP_CLIENT_TOKEN", ""))
+        return cls(
+            sp_dc=os.getenv("SP_DC", ""),
+            client_token=os.getenv("SP_CLIENT_TOKEN", ""),
+            access_token=os.getenv("SP_ACCESS_TOKEN", ""),
+        )
 
     # --- auth ---------------------------------------------------------------
     def _access_token(self) -> str:
+        if self._static_token:           # a directly-supplied bearer token (expires ~1h)
+            return self._static_token
         now_ms = int(time.time() * 1000)
         if self._token and now_ms < self._token_expiry_ms - 30_000:
             return self._token
@@ -160,7 +168,7 @@ class SpotifyClient:
         stubs: list = []
         offset = 0
         while True:
-            data = self._query("fetchPlaylist", {"uri": uri, "offset": offset, "limit": PLAYLIST_PAGE_SIZE})
+            data = self._query("fetchPlaylist", {"uri": uri, "offset": offset, "limit": PLAYLIST_PAGE_SIZE, "includeEpisodeContentRatingsV2": True})
             pl = data.get("playlistV2") or data.get("playlist") or {}
             name = name or (pl.get("name") or "Playlist")
             content = pl.get("content") or {}
@@ -192,7 +200,7 @@ class SpotifyClient:
         counts: dict[str, int] = {}
         offset = 0
         while True:
-            data = self._query("getAlbum", {"uri": uri, "locale": "", "offset": offset, "limit": ALBUM_PAGE_SIZE})
+            data = self._query("getAlbum", {"uri": uri, "locale": LOCALE, "offset": offset, "limit": ALBUM_PAGE_SIZE})
             album = data.get("albumUnion") or data.get("album") or {}
             tracks = album.get("tracks") or {}
             items = tracks.get("items") or []
