@@ -183,6 +183,47 @@ class SpotifyClient:
                 return data["accessToken"], int(data.get("accessTokenExpirationTimestampMs", int(time.time() * 1000) + 3_000_000))
         return None
 
+    def diagnose(self) -> dict:
+        """Report each auth step's status (no secrets) so failures are visible."""
+        rep = {
+            "sp_dc_set": bool(self._sp_dc),
+            "manual_access_token": bool(self._static_token),
+            "manual_client_token": bool(self._ct_manual),
+            "token_url": TOKEN_URL,
+        }
+        try:
+            h = self._session.head("https://open.spotify.com/", timeout=10)
+            rep["homepage_head_status"] = h.status_code
+            rep["server_date"] = h.headers.get("Date")
+        except Exception as e:
+            rep["homepage_head_error"] = repr(e)
+        ver, cipher = _TOTP_CANDIDATES[0]
+        try:
+            otp = _totp(_totp_secret(cipher), self._server_time())
+            r = self._session.get(
+                TOKEN_URL,
+                params={"reason": "transport", "productType": "web-player", "totp": otp, "totpServer": otp, "totpVer": ver},
+                headers={"Cookie": f"sp_dc={self._sp_dc}", "Referer": "https://open.spotify.com/"},
+                timeout=15,
+            )
+            rep["token_status"] = r.status_code
+            rep["token_content_type"] = r.headers.get("Content-Type")
+            snippet = re.sub(r'"accessToken":"[^"]*"', '"accessToken":"<redacted>"', r.text[:300])
+            rep["token_body_snippet"] = snippet
+            try:
+                j = r.json()
+                rep["token_isAnonymous"] = j.get("isAnonymous")
+                rep["token_has_accessToken"] = bool(j.get("accessToken"))
+            except Exception:
+                pass
+        except Exception as e:
+            rep["token_error"] = repr(e)
+        try:
+            rep["client_token_granted"] = bool(self._client_token())
+        except Exception as e:
+            rep["client_token_error"] = repr(e)
+        return rep
+
     def _client_token(self) -> str:
         if self._ct_manual:              # manual SP_CLIENT_TOKEN override
             return self._ct_manual

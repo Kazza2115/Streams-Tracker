@@ -37,6 +37,17 @@ def city_js():
     return send_from_directory(os.path.join(app.root_path, "docs"), "city.js")
 
 
+@app.route("/api/diag")
+def api_diag():
+    """Auth diagnostics (no secrets) to pinpoint why token minting fails."""
+    try:
+        from spotify_client import SpotifyClient
+
+        return jsonify(SpotifyClient.from_env().diagnose())
+    except Exception as e:
+        return jsonify(error=repr(e)), 500
+
+
 @app.route("/api/streams")
 def api_streams():
     """Return a StreamResult as JSON for the given Spotify link, or an error.
