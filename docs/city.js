@@ -487,13 +487,22 @@ function theme_color(artist) { return colHSL([hashStr(artist) % 360, 55, 60]); }
 document.addEventListener("DOMContentLoaded", () => {
   const city = new CanvasCity(document.getElementById("city"), document.getElementById("tip"));
   const input = document.getElementById("link"), out = document.getElementById("out");
-  function run() {
-    try {
-      const { type, id } = parseSpotifyInput(input.value);
-      const result = getStreams(type, id);
-      city.result = result; city.t0 = performance.now(); city.layout();
-      renderPanel(result, out);
-    } catch (err) { city.result = null; city.layoutEmpty(); out.innerHTML = `<div class="error">${esc(err.message)}</div>`; }
+  const show = result => { city.result = result; city.t0 = performance.now(); city.layout(); renderPanel(result, out); };
+  const fail = msg => { city.result = null; city.layoutEmpty(); out.innerHTML = `<div class="error">${esc(msg)}</div>`; };
+  async function run() {
+    const raw = input.value;
+    if (window.STREAM_SOURCE === "api") {                       // real data, fetched server-side
+      out.innerHTML = `<div class="muted">Loading live data… (large playlists can take a moment)</div>`;
+      try {
+        const resp = await fetch("/api/streams?link=" + encodeURIComponent(raw));
+        const data = await resp.json();
+        if (!resp.ok) throw new Error(data.error || ("HTTP " + resp.status));
+        show(data);
+      } catch (err) { fail(err.message); }
+    } else {                                                    // static demo: mock data
+      try { const { type, id } = parseSpotifyInput(raw); show(getStreams(type, id)); }
+      catch (err) { fail(err.message); }
+    }
   }
   document.getElementById("form").addEventListener("submit", e => { e.preventDefault(); run(); });
   document.querySelectorAll("[data-fill]").forEach(a => a.addEventListener("click", e => { e.preventDefault(); input.value = a.getAttribute("data-fill"); run(); }));

@@ -3,75 +3,70 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>Stream Consolidator</title>
+  <title>Stream City — Stream Consolidator</title>
   <style>
-    :root { color-scheme: light dark; }
-    body { font-family: system-ui, -apple-system, sans-serif; max-width: 760px; margin: 3rem auto; padding: 0 1rem; line-height: 1.45; }
-    h1 { font-size: 1.4rem; }
-    form { display: flex; gap: .5rem; margin: 1.5rem 0; }
-    input[type=text] { flex: 1; padding: .6rem .8rem; font-size: 1rem; border: 1px solid #888; border-radius: 8px; }
-    button { padding: .6rem 1.1rem; font-size: 1rem; border: 0; border-radius: 8px; background: #1db954; color: #fff; cursor: pointer; }
-    .total { font-size: 2.2rem; font-weight: 700; margin: .2rem 0; }
-    .muted { color: #888; font-size: .9rem; }
-    .error { background: #fde7e7; color: #7a1212; padding: .8rem 1rem; border-radius: 8px; }
-    .note { background: #fff6d6; color: #5b4a00; padding: .5rem .8rem; border-radius: 8px; font-size: .9rem; margin: .4rem 0; }
-    table { width: 100%; border-collapse: collapse; margin-top: 1rem; font-size: .92rem; }
-    th, td { text-align: left; padding: .4rem .5rem; border-bottom: 1px solid #8884; }
+    :root { --ink: #1d2740; --muted: #5a6678; --accent: #2bb1a8; --line: #e2e7ef; }
+    * { box-sizing: border-box; }
+    body { margin: 0; padding: 0 1rem 3rem; color: var(--ink); background: linear-gradient(180deg, #eef3f9 0%, #e7edf5 100%); min-height: 100vh; font-family: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; line-height: 1.5; }
+    .wrap { max-width: 1000px; margin: 0 auto; }
+    h1 { font-size: 1.5rem; font-weight: 800; letter-spacing: -.01em; margin: 1.6rem 0 .25rem; }
+    .tag { color: var(--muted); margin: 0 0 1rem; font-size: .95rem; }
+    .demo-banner { background: #eaf6f5; border: 1px solid #bfe6e1; color: #15514c; padding: .7rem .9rem; border-radius: 10px; font-size: .88rem; margin: 1rem 0; }
+    .demo-banner.live { background: #eef7ea; border-color: #c5e6b8; color: #335b1c; }
+    .demo-banner.warn { background: #fdeef0; border-color: #f3c2cb; color: #8a1e33; }
+    form { display: flex; gap: .5rem; margin: 1rem 0 .5rem; }
+    input[type=text] { flex: 1; padding: .7rem .85rem; font-size: 1rem; color: var(--ink); background: #fff; border: 1px solid #cfd6e2; border-radius: 10px; }
+    input[type=text]:focus { outline: none; border-color: var(--accent); box-shadow: 0 0 0 3px rgba(43,177,168,.18); }
+    button { padding: .7rem 1.2rem; font-size: .95rem; font-weight: 700; border: 0; border-radius: 10px; background: var(--accent); color: #fff; cursor: pointer; box-shadow: 0 2px 6px rgba(43,177,168,.35); }
+    button:active { transform: translateY(1px); }
+    .examples { font-size: .85rem; color: var(--muted); margin: .2rem 0 1rem; }
+    .examples a { color: var(--accent); cursor: pointer; text-decoration: none; border-bottom: 1px dotted; }
+    .stage { position: relative; border-radius: 14px; overflow: hidden; box-shadow: 0 12px 34px rgba(20,35,60,.18); }
+    #city { display: block; width: 100%; height: 700px; }
+    #tip { position: fixed; display: none; z-index: 10; pointer-events: none; background: #1d2740; color: #fff; padding: .45rem .65rem; border-radius: 8px; font-size: .82rem; max-width: 240px; box-shadow: 0 6px 16px rgba(0,0,0,.25); }
+    .scoreboard { margin-top: 1.2rem; background: #fff; border: 1px solid var(--line); border-radius: 14px; padding: 1.1rem 1.2rem; text-align: center; box-shadow: 0 6px 18px rgba(20,35,60,.06); }
+    .sb-label { font-size: .72rem; font-weight: 700; letter-spacing: .14em; color: var(--accent); }
+    .sb-total { font-size: 2.1rem; font-weight: 800; margin: .35rem 0; letter-spacing: -.01em; word-break: break-all; }
+    .sb-sub { color: var(--muted); font-size: .85rem; }
+    .note { background: #fff6e6; border: 1px solid #f0d9a6; color: #6b4f12; padding: .55rem .85rem; border-radius: 10px; font-size: .85rem; margin: .55rem 0; }
+    .error { background: #fdeef0; border: 1px solid #f3c2cb; color: #8a1e33; padding: .8rem 1rem; border-radius: 10px; }
+    .muted { color: var(--muted); font-size: .85rem; }
+    details { margin-top: .6rem; }
+    summary { cursor: pointer; color: var(--accent); font-size: .88rem; }
+    table { width: 100%; border-collapse: collapse; margin-top: .6rem; font-size: .9rem; }
+    th, td { text-align: left; padding: .45rem .55rem; border-bottom: 1px solid var(--line); }
     td.num, th.num { text-align: right; font-variant-numeric: tabular-nums; }
-    .na { color: #b00; }
+    .na { color: #c0445a; }
+    footer { margin-top: 2rem; font-size: .8rem; color: var(--muted); }
   </style>
 </head>
 <body>
-  <h1>🎧 Stream Consolidator</h1>
-  <p class="muted">Paste a Spotify playlist link to get the combined play count of its tracks.</p>
+  <div class="wrap">
+    <h1>🏙️ Stream City</h1>
+    <p class="tag">Paste a Spotify playlist — each track becomes a building scaled to its streams, grouped into a district per artist.</p>
 
-  <form method="post">
-    <input type="text" name="link" value="{{ raw }}"
-           placeholder="https://open.spotify.com/playlist/… or spotify:playlist:…" autofocus>
-    <button type="submit">Consolidate</button>
-  </form>
-
-  {% if error %}
-    <div class="error">{{ error }}</div>
-  {% endif %}
-
-  {% if result %}
-    <h2>{{ result.entity_name }} <span class="muted">({{ result.entity_type }})</span></h2>
-    {% if result.total_streams is not none %}
-      <div class="total">{{ result.total_streams | grouped }} <span class="muted">streams</span></div>
+    {% if source == 'spotify' %}
+      <div class="demo-banner live">🎧 <strong>Live Spotify data.</strong> Paste any playlist link to map its real per-track play counts. Counts come from Spotify's internal endpoint — unofficial and fragile, so occasional errors are expected.</div>
+    {% elif source == 'songstats' %}
+      <div class="demo-banner warn">⚠️ <strong>Songstats source selected</strong> — phase-2 stub, not implemented yet. Set <code>SOURCE=spotify</code>.</div>
     {% else %}
-      <div class="total na">No count available</div>
+      <div class="demo-banner">🧪 <strong>Demo mode (mock).</strong> Running with <code>SOURCE=mock</code> — sample data via the API. Restart with <code>SOURCE=spotify</code> and your <code>SP_DC</code> cookie for real counts.</div>
     {% endif %}
-    <p class="muted">
-      {{ result.tracks_counted }} track(s) counted{% if result.tracks_missing %},
-      {{ result.tracks_missing }} without a count{% endif %} · source: {{ result.source }}
-    </p>
-    {% for note in result.notes %}
-      <div class="note">{{ note }}</div>
-    {% endfor %}
-    <p class="muted">This is the combined all-time play count of the tracks — not the
-      number of streams generated by the playlist itself (Spotify does not expose that).</p>
 
-    {% if result.tracks %}
-      <table>
-        <thead>
-          <tr><th>#</th><th>Track</th><th>Artist</th><th class="num">Plays</th></tr>
-        </thead>
-        <tbody>
-          {% for t in result.tracks %}
-            <tr>
-              <td>{{ loop.index }}</td>
-              <td>{{ t.name }}</td>
-              <td>{{ t.artists }}</td>
-              <td class="num">
-                {% if t.play_count is not none %}{{ t.play_count | grouped }}
-                {% else %}<span class="na">n/a</span>{% endif %}
-              </td>
-            </tr>
-          {% endfor %}
-        </tbody>
-      </table>
-    {% endif %}
-  {% endif %}
+    <form id="form">
+      <input type="text" id="link" placeholder="https://open.spotify.com/playlist/… or spotify:playlist:…" autofocus>
+      <button type="submit">Build city</button>
+    </form>
+    <p class="examples">Tip: paste a playlist URL or <code>spotify:playlist:ID</code> URI.</p>
+
+    <div class="stage"><canvas id="city"></canvas></div>
+    <div id="tip"></div>
+    <div id="out"></div>
+
+    <footer>Stream Consolidator — source: <strong>{{ source }}</strong>. Hover a building for its exact count.</footer>
+  </div>
+
+  <script>window.STREAM_SOURCE = "api";</script>
+  <script src="/city.js?v=lowpoly5"></script>
 </body>
 </html>

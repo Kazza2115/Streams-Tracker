@@ -31,8 +31,11 @@ change instead of a rewrite.
 - `spotify_client.py` — the **only** file that touches Spotify's internal endpoint. All
   volatile constants (token URL, pathfinder URL, persisted-query hashes) live at the top.
 - `parsing.py` — Spotify URL/URI → `(entity_type, entity_id)`, network-free.
-- `app.py` — Flask UI, one input box. Source is chosen with the `SOURCE` env var
-  (`mock` | `spotify` | `songstats`).
+- `app.py` — Flask: serves the city UI and a `/api/streams` JSON endpoint (the
+  browser calls the API; the provider runs server-side — a browser cannot reach
+  Spotify). Source is chosen with the `SOURCE` env var (`mock` | `spotify` | `songstats`).
+- `docs/` — static GitHub Pages demo (mock only) + `docs/city.js`, the isometric
+  low-poly city renderer shared by the Flask app and the Pages demo.
 
 Adding a data source = a new `StreamProvider` subclass that returns a `StreamResult`.
 Keep `StreamResult`'s shape stable — the template depends on it (additive fields are OK).
@@ -48,7 +51,12 @@ resolved are excluded and the result is flagged `partial`.
 ## Current state
 - **Works and tested** (offline, via `MockProvider` + a fake Spotify client): URL/URI
   parsing, the provider abstraction, playlist aggregation (incl. partial totals and
-  album-dedupe orchestration), the Flask request flow, and error handling. `pytest -q`.
+  album-dedupe orchestration), the Flask request flow, the `/api/streams` JSON
+  endpoint, the city UI, and error handling. `pytest -q`.
+- **End-to-end wired:** the isometric-city frontend fetches `/api/streams`, so
+  running `SOURCE=spotify` with a valid `SP_DC` + hashes maps a real playlist.
+  The visualization is offline-proven via mock; only the live Spotify fetch is
+  unverified (next bullet).
 - **Implemented but not verified against live Spotify:** `SpotifyProvider` playlist path
   and `spotify_client` (token exchange, `fetchPlaylist`, `getAlbum`). Needs `SP_DC` and
   current `QUERY_HASHES` (`SP_HASH_FETCH_PLAYLIST`, `SP_HASH_GET_ALBUM`). The pathfinder

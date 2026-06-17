@@ -29,7 +29,8 @@ change.
 | `providers.py` | `StreamProvider` interface, `StreamResult`/`TrackCount`, `aggregate_tracks`, and the `MockProvider` / `SpotifyProvider` / `SongstatsProvider` implementations. |
 | `spotify_client.py` | The **only** file that touches Spotify's internal pathfinder endpoint. Token handling + volatile constants (`QUERY_HASHES`, URLs). |
 | `parsing.py` | Spotify URL/URI → `(entity_type, entity_id)`. |
-| `app.py` | Flask UI, one input box. Source chosen via the `SOURCE` env var. |
+| `app.py` | Flask: serves the isometric-city UI plus a `/api/streams` JSON endpoint. The browser calls the API; the provider runs **server-side**. Source chosen via the `SOURCE` env var. |
+| `docs/city.js` | The isometric low-poly city renderer, shared by the Flask app (real data via `/api/streams`) and the static GitHub Pages demo (mock data). |
 
 ## Run
 
@@ -69,6 +70,17 @@ It needs two things from your logged-in web session, supplied via env vars
    - `getAlbum` → `SP_HASH_GET_ALBUM`
 
 If pathfinder starts returning HTTP 400, the hashes have rotated — recapture them.
+
+Then:
+
+```bash
+SOURCE=spotify SP_DC="…" SP_HASH_FETCH_PLAYLIST="…" SP_HASH_GET_ALBUM="…" python app.py
+```
+
+open <http://localhost:5000>, paste **your** playlist link, and the city is built
+from real per-track counts. (GitHub Pages can only ever show the mock demo — real
+counts require this server, which is why you run it locally.) Large playlists can
+take a while: counts are resolved by fetching each distinct album once.
 
 ## Guardrails
 
