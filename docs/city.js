@@ -88,8 +88,8 @@ function pointInPoly(px, py, poly) {
 }
 
 const CAR_COLORS = ["#e35d5d", "#5aa7e0", "#f3c64b", "#74c98a", "#d98ad0", "#f2f2f2", "#7d8bd6"];
-const BP = 1.7, AV = 1.2, ZPAD = 0.95, DISTRICT_MIN = 5;
-const RINGPAD = 0.86;   // citizen sidewalk ring radius beyond the block edge (clears buildings)
+const BP = 1.7, AV = 1.2, ZPAD = 1.0, DISTRICT_MIN = 5;
+const RINGPAD = 0.95;   // citizen sidewalk ring radius beyond the block edge (clears buildings)
 const dk = (c, d) => [c[0], c[1], Math.max(0, c[2] - d)];
 
 // deterministic theme per artist: palette + roof style
@@ -134,7 +134,7 @@ class CanvasCity {
     const TW0 = 32, TH0 = 16;
     const widthTiles = (this.gMaxX - this.gMinY) - (this.gMinX - this.gMaxY);
     const heightTiles = (this.gMaxX + this.gMaxY) - (this.gMinX + this.gMinY);
-    this.scale = clamp(Math.min(this.W * 0.96 / (widthTiles * TW0), this.H * 0.96 / (heightTiles * TH0 + maxTargetH)), 0.32, 1.15);
+    this.scale = clamp(Math.min(this.W * 0.96 / (widthTiles * TW0), this.H * 0.96 / (heightTiles * TH0 + maxTargetH)), 0.32, 1.3);
     this.TW = TW0 * this.scale; this.TH = TH0 * this.scale; this.maxH = maxTargetH * this.scale;
   }
   camera() {
@@ -183,7 +183,7 @@ class CanvasCity {
           const t = d.tracks[k];
           const jx = (rand01(t.name + "x") - 0.5) * 0.1, jy = (rand01(t.name + "y") - 0.5) * 0.1;
           this.buildings.push({
-            track: t, gx: cx + jx, gy: cy + jy, f: 0.66 + (hashStr(t.name + "f") % 10) / 100,
+            track: t, gx: cx + jx, gy: cy + jy, f: 0.8 + (hashStr(t.name + "f") % 6) / 100,
             ruin: t.play_count == null, pc: t.play_count, maxC,
             col: theme.colors[hashStr(t.name) % theme.colors.length],
             accent: theme.accent, style: theme.style < 0 ? hashStr(t.name) % 4 : theme.style,
@@ -201,11 +201,11 @@ class CanvasCity {
     this.gMinX = this.vAv[0] - AV / 2; this.gMaxX = this.vAv[this.vAv.length - 1] + AV / 2;
     this.gMinY = this.hAv[0] - AV / 2; this.gMaxY = this.hAv[this.hAv.length - 1] + AV / 2;
 
-    this.fit(480);
-    const minH = 120 * this.scale, maxH = this.maxH;
+    this.fit(240);
+    const minH = 140 * this.scale, maxH = this.maxH;
     let tallest = null;
     for (const b of this.buildings) {
-      b.targetH = b.ruin ? 95 * this.scale : minH + (maxH - minH) * Math.pow(b.pc / b.maxC, 0.55);
+      b.targetH = b.ruin ? 120 * this.scale : minH + (maxH - minH) * Math.pow(b.pc / b.maxC, 0.5);
       if (!b.ruin && (!tallest || b.pc > tallest.pc)) tallest = b;
     }
     if (tallest) tallest.isTallest = true;
@@ -371,16 +371,11 @@ class CanvasCity {
     const ctx = this.ctx;
     const p = clamp((now - this.t0 - b.start) / 700, 0, 1);
     const h = b.targetH * (1 - Math.pow(1 - p, 3));
-    const ph = Math.min(10 * this.scale, 0.14 * h + 3);            // foundation plinth height
     const C = this.iso(b.gx, b.gy), hw = b.f * this.TW, hh = b.f * this.TH;
-    const gN = { x: C.x, y: C.y - hh }, gS = { x: C.x, y: C.y + hh }, gE = { x: C.x + hw, y: C.y }, gW = { x: C.x - hw, y: C.y };
-    // ground shadow + foundation plinth (anchors the building to its lot)
-    this._diamond(b.gx + 0.13, b.gy + 0.13, b.f * 1.18, b.f * 1.18, "rgba(18,26,38,.17)");
-    this._boxAt(b.gx, b.gy, b.f * 1.06, b.f * 1.06, 0, ph, b.ruin ? [220, 6, 44] : dk(b.col, 26));
-    // building lifted onto the plinth
-    const N = { x: gN.x, y: gN.y - ph }, S = { x: gS.x, y: gS.y - ph }, E = { x: gE.x, y: gE.y - ph }, W = { x: gW.x, y: gW.y - ph };
+    const N = { x: C.x, y: C.y - hh }, S = { x: C.x, y: C.y + hh }, E = { x: C.x + hw, y: C.y }, W = { x: C.x - hw, y: C.y };
     const Nt = { x: N.x, y: N.y - h }, Et = { x: E.x, y: E.y - h }, St = { x: S.x, y: S.y - h }, Wt = { x: W.x, y: W.y - h };
     b._poly = [E, S, W, Wt, Nt, Et];
+    this._diamond(b.gx + 0.1, b.gy + 0.1, b.f * 1.04, b.f * 1.04, "rgba(18,26,38,.14)"); // contact shadow
     if (b.ruin) {
       this._face(E, S, h, "#7c7f88"); this._face(S, W, h, "#62656e");
       this._quad([Nt, Et, St, Wt], "#9a9da6");
@@ -389,12 +384,11 @@ class CanvasCity {
       this._face(E, S, h, colHSL(b.col, -6)); this._face(S, W, h, colHSL(b.col, -16));
       this._quad([Nt, Et, St, Wt], colHSL(b.col, 9));
       this._glass(E, S, h, b.track.name + "R", b.col); this._glass(S, W, h, b.track.name + "L", b.col);
-      // crisp low-poly edges
       ctx.strokeStyle = colHSL(b.col, -34); ctx.lineWidth = 1;
       ctx.beginPath(); b._poly.forEach((pt, i) => i ? ctx.lineTo(pt.x, pt.y) : ctx.moveTo(pt.x, pt.y)); ctx.closePath(); ctx.stroke();
       const seg = (a, z) => { ctx.beginPath(); ctx.moveTo(a.x, a.y); ctx.lineTo(z.x, z.y); ctx.stroke(); };
       seg(S, St); seg(Et, St); seg(Wt, St);
-      if (p > 0.92) this._roof(b, { x: C.x, y: C.y - ph - h }, Nt, Et, St, Wt, ph + h);
+      if (p > 0.92) this._roof(b, { x: C.x, y: C.y - h }, Nt, Et, St, Wt, h);
     }
     if (this.hover === b) { ctx.strokeStyle = "rgba(255,255,255,.95)"; ctx.lineWidth = 2; ctx.beginPath(); b._poly.forEach((pt, i) => i ? ctx.lineTo(pt.x, pt.y) : ctx.moveTo(pt.x, pt.y)); ctx.closePath(); ctx.stroke(); }
     if (b.isTallest && p > 0.92) { ctx.strokeStyle = colHSL(b.accent); ctx.lineWidth = 2; ctx.beginPath(); ctx.moveTo(C.x, Nt.y); ctx.lineTo(C.x, Nt.y - 18 * this.scale); ctx.stroke(); ctx.fillStyle = colHSL(b.accent, (Math.floor(now / 500) % 2) ? 8 : -22); ctx.beginPath(); ctx.arc(C.x, Nt.y - 20 * this.scale, 3.2, 0, 7); ctx.fill(); }
