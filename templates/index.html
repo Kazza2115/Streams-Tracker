@@ -43,7 +43,7 @@
 <body>
   <div class="wrap">
     <h1>🏙️ Stream City</h1>
-    <p class="tag">Paste a Spotify playlist — each track becomes a building scaled to its streams, grouped into a district per artist.</p>
+    <p class="tag">Paste a Spotify playlist or album — each track becomes a building scaled to its streams, grouped into a district per artist. <strong>Scroll to zoom, drag to pan, double-click to reset.</strong></p>
 
     {% if source == 'spotify' %}
       <div class="demo-banner live">🎧 <strong>Live Spotify data.</strong> Paste any playlist link to map its real per-track play counts. Counts come from Spotify's internal endpoint — unofficial and fragile, so occasional errors are expected.</div>
@@ -67,6 +67,6 @@
   </div>
 
   <script>window.STREAM_SOURCE = "api";</script>
-  <script src="/city.js?v=lowpoly5"></script>
+  <script src="/city.js?v=zoom1"></script>
 </body>
 </html>

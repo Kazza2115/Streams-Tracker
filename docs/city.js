@@ -111,16 +111,34 @@ class CanvasCity {
     this.districts = []; this.buildings = []; this.trees = []; this.cars = []; this.walkers = []; this.signs = [];
     this.gMinX = -2; this.gMaxX = 6; this.gMinY = -2; this.gMaxY = 6;
     this.TW = 32; this.TH = 16; this.scale = 1; this.maxH = 120;
-    this.originX = 0; this.originY = 0; this.camDX = 0; this.camTargetDX = 0;
+    this.originX = 0; this.originY = 0;
+    this.zoom = 1; this.panX = 0; this.panY = 0; this._detail = true;
     this.t0 = 0; this.last = performance.now(); this.hover = null;
     this.resize();
     window.addEventListener("resize", () => this.resize());
-    canvas.addEventListener("mousemove", e => this.onMove(e));
-    canvas.addEventListener("mouseleave", () => { this.hover = null; this.camTargetDX = 0; this.tip.style.display = "none"; });
+    // pan (drag), zoom (wheel, toward cursor), double-click to reset the view
+    let dragging = false, lx = 0, ly = 0;
+    canvas.style.cursor = "grab";
+    canvas.addEventListener("mousedown", e => { dragging = true; lx = e.clientX; ly = e.clientY; canvas.style.cursor = "grabbing"; });
+    window.addEventListener("mouseup", () => { dragging = false; canvas.style.cursor = "grab"; });
+    canvas.addEventListener("mousemove", e => {
+      if (dragging) { this.panX += e.clientX - lx; this.panY += e.clientY - ly; lx = e.clientX; ly = e.clientY; this.hover = null; this.tip.style.display = "none"; return; }
+      this.onMove(e);
+    });
+    canvas.addEventListener("mouseleave", () => { this.hover = null; this.tip.style.display = "none"; });
+    canvas.addEventListener("wheel", e => {
+      e.preventDefault();
+      const r = canvas.getBoundingClientRect(), mx = e.clientX - r.left, my = e.clientY - r.top;
+      const nz = clamp(this.zoom * (e.deltaY < 0 ? 1.12 : 1 / 1.12), 0.25, 7);
+      this.panX = mx - (mx - this.panX) * (nz / this.zoom);
+      this.panY = my - (my - this.panY) * (nz / this.zoom);
+      this.zoom = nz;
+    }, { passive: false });
+    canvas.addEventListener("dblclick", () => { this.zoom = 1; this.panX = 0; this.panY = 0; });
     requestAnimationFrame(t => this.loop(t));
   }
 
-  iso(gx, gy) { return { x: this.originX + (gx - gy) * this.TW + this.camDX, y: this.originY + (gx + gy) * this.TH }; }
+  iso(gx, gy) { return { x: this.originX + (gx - gy) * this.TW, y: this.originY + (gx + gy) * this.TH }; }
 
   resize() {
     const dpr = window.devicePixelRatio || 1;
@@ -134,7 +152,7 @@ class CanvasCity {
     const TW0 = 32, TH0 = 16;
     const widthTiles = (this.gMaxX - this.gMinY) - (this.gMinX - this.gMaxY);
     const heightTiles = (this.gMaxX + this.gMaxY) - (this.gMinX + this.gMinY);
-    this.scale = clamp(Math.min(this.W * 0.96 / (widthTiles * TW0), this.H * 0.96 / (heightTiles * TH0 + maxTargetH)), 0.32, 1.3);
+    this.scale = clamp(Math.min(this.W * 0.96 / (widthTiles * TW0), this.H * 0.96 / (heightTiles * TH0 + maxTargetH)), 0.08, 1.3);
     this.TW = TW0 * this.scale; this.TH = TH0 * this.scale; this.maxH = maxTargetH * this.scale;
   }
   camera() {
@@ -151,6 +169,7 @@ class CanvasCity {
     this.gMinX = -2.5; this.gMaxX = 3.5; this.gMinY = -2.5; this.gMaxY = 3.5;
     this.vAv = [-1.5, 1.5]; this.hAv = [-1.5, 1.5];
     this._buildCarGraph(); this._spawnCars(2);
+    this._detail = true; this.zoom = 1; this.panX = 0; this.panY = 0;
     this.fit(70); this.camera();
   }
 
@@ -189,7 +208,7 @@ class CanvasCity {
             accent: theme.accent, style: theme.style < 0 ? hashStr(t.name) % 4 : theme.style,
             isTallest: false, start: this.buildings.length * 55, _poly: null,
           });
-        } else {
+        } else if (tracks.length <= 140) {
           this.trees.push({ gx: cx + (rand01(d.artist + k + "x") - 0.5) * 0.5, gy: cy + (rand01(d.artist + k + "y") - 0.5) * 0.5, k: d.artist + k });
         }
       }
@@ -230,6 +249,9 @@ class CanvasCity {
       const m = counts.get(d), i = seenW.get(d) || 0; seenW.set(d, i + 1);
       this.walkers.push({ name: a, color: theme_color(a), district: d, labelled: !d.named, u: (i + 0.5) / m, phase: Math.random() * 1000, _gx: 0, _gy: 0 });
     }
+    if (this.walkers.length > 60) this.walkers.length = 60;     // cap citizens for big playlists
+    this._detail = this.buildings.length <= 140;                // simplify rendering when huge
+    this.zoom = 1; this.panX = 0; this.panY = 0;                // fresh fit per search
     this.camera();
   }
 
@@ -263,10 +285,10 @@ class CanvasCity {
   }
 
   onMove(e) {
-    const r = this.canvas.getBoundingClientRect(), mx = e.clientX - r.left, my = e.clientY - r.top;
-    this.camTargetDX = (mx / this.W - 0.5) * 18 * this.scale;
+    const r = this.canvas.getBoundingClientRect();
+    const wx = (e.clientX - r.left - this.panX) / this.zoom, wy = (e.clientY - r.top - this.panY) / this.zoom;
     this.hover = null;
-    for (let i = this.buildings.length - 1; i >= 0; i--) { const b = this.buildings[i]; if (b._poly && pointInPoly(mx, my, b._poly)) { this.hover = b; break; } }
+    for (let i = this.buildings.length - 1; i >= 0; i--) { const b = this.buildings[i]; if (b._poly && pointInPoly(wx, wy, b._poly)) { this.hover = b; break; } }
     if (this.hover) {
       const t = this.hover.track;
       this.tip.innerHTML = `<strong>${esc(t.name)}</strong><br>${esc(t.artists)}<br>` + (t.play_count != null ? `${fmt(t.play_count)} streams` : `<span style="color:#e0556a">no count available</span>`);
@@ -275,7 +297,6 @@ class CanvasCity {
   }
   loop(now) {
     const dt = Math.min(0.05, (now - this.last) / 1000); this.last = now;
-    this.camDX += (this.camTargetDX - this.camDX) * Math.min(1, dt * 6);
     this.draw(now, dt); requestAnimationFrame(t => this.loop(t));
   }
 
@@ -324,6 +345,10 @@ class CanvasCity {
     ctx.fillStyle = "#fff4cf"; ctx.beginPath(); ctx.arc(sunX, sunY, 24, 0, 7); ctx.fill();
     this._clouds(now);
 
+    ctx.save();                                   // viewport: pan + zoom
+    ctx.translate(this.panX, this.panY);
+    ctx.scale(this.zoom, this.zoom);
+
     this._drawGround();
     for (const c of this.cars) this._stepCar(c, dt);
     for (const w of this.walkers) this._stepWalker(w, dt);
@@ -342,7 +367,8 @@ class CanvasCity {
       else if (it.k === "w") this._drawWalker(it.r, now);
       else this._drawSign(it.r);
     }
-    if (!this.result) { ctx.fillStyle = "rgba(30,40,60,.9)"; ctx.font = "600 15px system-ui,sans-serif"; ctx.textAlign = "center"; ctx.fillText("Paste a playlist link to build the city ↑", W / 2, this.originY); }
+    ctx.restore();
+    if (!this.result) { ctx.fillStyle = "rgba(30,40,60,.9)"; ctx.font = "600 15px system-ui,sans-serif"; ctx.textAlign = "center"; ctx.fillText("Paste a playlist link to build the city ↑", W / 2, H / 2); }
   }
 
   _clouds(now) {
@@ -379,20 +405,22 @@ class CanvasCity {
     if (b.ruin) {
       this._face(E, S, h, "#7c7f88"); this._face(S, W, h, "#62656e");
       this._quad([Nt, Et, St, Wt], "#9a9da6");
-      this._glass(E, S, h, "rr" + b.gx, [45, 55, 56]); this._glass(S, W, h, "rl" + b.gy, [45, 46, 50]);
+      if (this._detail) { this._glass(E, S, h, "rr" + b.gx, [45, 55, 56]); this._glass(S, W, h, "rl" + b.gy, [45, 46, 50]); }
     } else {
       this._face(E, S, h, colHSL(b.col, -6)); this._face(S, W, h, colHSL(b.col, -16));
       this._quad([Nt, Et, St, Wt], colHSL(b.col, 9));
-      this._glass(E, S, h, b.track.name + "R", b.col); this._glass(S, W, h, b.track.name + "L", b.col);
-      ctx.strokeStyle = colHSL(b.col, -34); ctx.lineWidth = 1;
-      ctx.beginPath(); b._poly.forEach((pt, i) => i ? ctx.lineTo(pt.x, pt.y) : ctx.moveTo(pt.x, pt.y)); ctx.closePath(); ctx.stroke();
-      const seg = (a, z) => { ctx.beginPath(); ctx.moveTo(a.x, a.y); ctx.lineTo(z.x, z.y); ctx.stroke(); };
-      seg(S, St); seg(Et, St); seg(Wt, St);
-      if (p > 0.92) this._roof(b, { x: C.x, y: C.y - h }, Nt, Et, St, Wt, h);
+      if (this._detail) {
+        this._glass(E, S, h, b.track.name + "R", b.col); this._glass(S, W, h, b.track.name + "L", b.col);
+        ctx.strokeStyle = colHSL(b.col, -34); ctx.lineWidth = 1;
+        ctx.beginPath(); b._poly.forEach((pt, i) => i ? ctx.lineTo(pt.x, pt.y) : ctx.moveTo(pt.x, pt.y)); ctx.closePath(); ctx.stroke();
+        const seg = (a, z) => { ctx.beginPath(); ctx.moveTo(a.x, a.y); ctx.lineTo(z.x, z.y); ctx.stroke(); };
+        seg(S, St); seg(Et, St); seg(Wt, St);
+        if (p > 0.92) this._roof(b, { x: C.x, y: C.y - h }, Nt, Et, St, Wt, h);
+      }
     }
     if (this.hover === b) { ctx.strokeStyle = "rgba(255,255,255,.95)"; ctx.lineWidth = 2; ctx.beginPath(); b._poly.forEach((pt, i) => i ? ctx.lineTo(pt.x, pt.y) : ctx.moveTo(pt.x, pt.y)); ctx.closePath(); ctx.stroke(); }
-    if (b.isTallest && p > 0.92) { ctx.strokeStyle = colHSL(b.accent); ctx.lineWidth = 2; ctx.beginPath(); ctx.moveTo(C.x, Nt.y); ctx.lineTo(C.x, Nt.y - 18 * this.scale); ctx.stroke(); ctx.fillStyle = colHSL(b.accent, (Math.floor(now / 500) % 2) ? 8 : -22); ctx.beginPath(); ctx.arc(C.x, Nt.y - 20 * this.scale, 3.2, 0, 7); ctx.fill(); }
-    if (p > 0.85) { ctx.fillStyle = "#13203a"; ctx.font = `700 ${Math.round(11 * Math.max(0.85, this.scale))}px system-ui,sans-serif`; ctx.textAlign = "center"; ctx.fillText(short(b.track.play_count), C.x, Nt.y - 24 * this.scale); }
+    if (this._detail && b.isTallest && p > 0.92) { ctx.strokeStyle = colHSL(b.accent); ctx.lineWidth = 2; ctx.beginPath(); ctx.moveTo(C.x, Nt.y); ctx.lineTo(C.x, Nt.y - 18 * this.scale); ctx.stroke(); ctx.fillStyle = colHSL(b.accent, (Math.floor(now / 500) % 2) ? 8 : -22); ctx.beginPath(); ctx.arc(C.x, Nt.y - 20 * this.scale, 3.2, 0, 7); ctx.fill(); }
+    if (this._detail && p > 0.85) { ctx.fillStyle = "#13203a"; ctx.font = `700 ${Math.round(11 * Math.max(0.85, this.scale))}px system-ui,sans-serif`; ctx.textAlign = "center"; ctx.fillText(short(b.track.play_count), C.x, Nt.y - 24 * this.scale); }
   }
 
   _roof(b, apex0, Nt, Et, St, Wt, topElev) {

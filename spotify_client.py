@@ -76,6 +76,7 @@ QUERY_HASHES = {
 LOCALE = os.getenv("SP_LOCALE", "")
 PLAYLIST_PAGE_SIZE = 50
 ALBUM_PAGE_SIZE = 50
+MAX_TRACKS = int(os.getenv("SP_MAX_TRACKS", "12000"))   # pagination safety cap
 # ---------------------------------------------------------------------------
 
 
@@ -330,8 +331,8 @@ class SpotifyClient:
                     )
                 )
             offset += PLAYLIST_PAGE_SIZE
-            if not items or len(items) < PLAYLIST_PAGE_SIZE:
-                break  # short page => last page (works without relying on totalCount)
+            if not items or len(items) < PLAYLIST_PAGE_SIZE or offset >= MAX_TRACKS:
+                break  # short page => last page; MAX_TRACKS is a safety cap
         return PlaylistData(name=name, tracks=tracks)
 
     def fetch_album(self, album_id: str) -> PlaylistData:

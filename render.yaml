@@ -8,7 +8,7 @@ services:
     branch: claude/laughing-rubin-fm8819
     buildCommand: pip install -r requirements.txt
     # long timeout: large playlists resolve many albums sequentially
-    startCommand: gunicorn app:app --bind 0.0.0.0:$PORT --workers 1 --timeout 180
+    startCommand: gunicorn app:app --bind 0.0.0.0:$PORT --workers 1 --timeout 300
     envVars:
       - key: SOURCE
         value: spotify
