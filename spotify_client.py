@@ -40,7 +40,7 @@ from typing import Optional
 import requests
 
 # --- Volatile constants (override via env) ----------------------------------
-TOKEN_URL = os.getenv("SP_TOKEN_URL", "https://open.spotify.com/get_access_token")
+TOKEN_URL = os.getenv("SP_TOKEN_URL", "https://open.spotify.com/api/token")
 TOKEN_PARAMS = {"reason": "transport", "productType": "web-player"}
 PATHFINDER_URL = os.getenv("SP_PATHFINDER_URL", "https://api-partner.spotify.com/pathfinder/v2/query")
 # Automatic auth: exchange the sp_dc cookie for a token (TOTP) and grant a
@@ -170,7 +170,9 @@ class SpotifyClient:
                 params = {"reason": reason, "productType": "web-player",
                           "totp": otp, "totpServer": otp, "totpVer": ver}
                 try:
-                    r = self._session.get(TOKEN_URL, params=params, headers={"Cookie": f"sp_dc={self._sp_dc}"}, timeout=15)
+                    r = self._session.get(TOKEN_URL, params=params,
+                                          headers={"Cookie": f"sp_dc={self._sp_dc}", "Referer": "https://open.spotify.com/"},
+                                          timeout=15)
                 except requests.RequestException:
                     continue
                 if r.status_code != 200:
