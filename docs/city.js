@@ -235,7 +235,8 @@ class CanvasCity {
       const ox = colStart[mc], oy = rowStart[mr];
       const spanX = (d.dcols - 1) * BP, spanY = (d.drows - 1) * BP;   // this district's own footprint
       const theme = themeFor(d.artist, d.named);
-      this.districts.push({ ...d, ox, oy, spanX, spanY, theme });
+      const dist = { ...d, ox, oy, spanX, spanY, theme, _maxH: 0 };
+      this.districts.push(dist);
       for (let k = 0; k < d.dcols * d.drows; k++) {
         const lc = k % d.dcols, lr = Math.floor(k / d.dcols), cx = ox + lc * BP, cy = oy + lr * BP;
         if (k < d.tracks.length) {
@@ -243,14 +244,13 @@ class CanvasCity {
           const jx = (rand01(t.name + "x") - 0.5) * 0.08, jy = (rand01(t.name + "y") - 0.5) * 0.08;
           this.buildings.push({
             track: t, gx: cx + jx, gy: cy + jy, f: 0.82 + (hashStr(t.name + "f") % 5) / 100,
-            ruin: t.play_count == null, pc: t.play_count, maxC,
+            ruin: t.play_count == null, pc: t.play_count, maxC, dist,
             col: [theme.base[0], theme.base[1], theme.base[2] + (hashStr(t.name) % 9 - 4)], // cohesive hue, slight lightness variation
             accent: theme.accent, style: theme.style < 0 ? hashStr(t.name) % 4 : theme.style,
             isTallest: false, start: this.buildings.length * 55, _poly: null,
           });
         }
       }
-      this.signs.push({ gx: ox + spanX / 2, gy: oy + spanY + ZPAD + 0.05, text: d.named ? d.artist : "Downtown", named: d.named, accent: theme.accent });
     });
 
     // straight avenues at the column / row boundaries
@@ -272,6 +272,7 @@ class CanvasCity {
     let tallest = null;
     for (const b of this.buildings) {
       b.targetH = b.ruin ? 120 * this.scale : minH + (maxH - minH) * Math.pow(b.pc / b.maxC, 0.5);
+      if (b.dist) b.dist._maxH = Math.max(b.dist._maxH, b.targetH);
       if (!b.ruin && (!tallest || b.pc > tallest.pc)) tallest = b;
     }
     if (tallest) tallest.isTallest = true;
@@ -356,14 +357,16 @@ class CanvasCity {
   _tri(a, b, d, color) { this._quad([a, b, d], color); }
   _diamond(gx, gy, hx, hy, color) { this._quad([this.iso(gx, gy - hy), this.iso(gx + hx, gy), this.iso(gx, gy + hy), this.iso(gx - hx, gy)], color); }
   _face(A, B, h, color) { this._quad([A, B, { x: B.x, y: B.y - h }, { x: A.x, y: A.y - h }], color); }
-  _glass(A, B, h, key, base) {
+  _facade(A, B, h, base) {
+    // clean vertical glass strips (a curtain-wall look) instead of a noisy grid
     const len = Math.hypot(B.x - A.x, B.y - A.y);
-    const cols = Math.max(1, Math.min(4, Math.floor(len / (13 * this.scale)))), rows = Math.max(1, Math.min(9, Math.floor(h / (15 * this.scale))));
+    const cols = Math.max(1, Math.min(5, Math.round(len / (11 * this.scale))));
     const pt = (fu, fv) => ({ x: A.x + (B.x - A.x) * fu, y: A.y + (B.y - A.y) * fu - h * fv });
-    for (let r = 0; r < rows; r++) for (let c = 0; c < cols; c++) {
-      const lit = hashStr(key + c + "x" + r) % 4 === 0;
-      const fu0 = (c + 0.24) / cols, fu1 = (c + 0.76) / cols, fv0 = (r + 0.22) / rows, fv1 = (r + 0.74) / rows;
-      this._quad([pt(fu0, fv0), pt(fu1, fv0), pt(fu1, fv1), pt(fu0, fv1)], lit ? colHSL(base, 20, -10) : colHSL(base, -16));
+    const glass = colHSL(base, -20), edge = colHSL(base, -28);
+    for (let c = 0; c < cols; c++) {
+      const fu0 = (c + 0.26) / cols, fu1 = (c + 0.74) / cols;
+      this._quad([pt(fu0, 0.1), pt(fu1, 0.1), pt(fu1, 0.93), pt(fu0, 0.93)], glass);
+      this._quad([pt(fu0, 0.1), pt(fu0 + 0.02 / cols, 0.1), pt(fu0 + 0.02 / cols, 0.93), pt(fu0, 0.93)], edge); // thin mullion
     }
   }
   _strip(ax, ay, bx, by, hw, color) {
@@ -406,19 +409,17 @@ class CanvasCity {
 
     const items = [];
     for (const b of this.buildings) items.push({ d: b.gx + b.gy + 0.002, k: "b", r: b });
-    for (const t of this.trees) items.push({ d: t.gx + t.gy + 0.001, k: "t", r: t });
     for (const c of this.cars) items.push({ d: c.gx + c.gy, k: "c", r: c });
     for (const w of this.walkers) items.push({ d: w._gx + w._gy + 0.003, k: "w", r: w });
-    for (const s of this.signs) items.push({ d: s.gx + s.gy + 0.5, k: "s", r: s });
     items.sort((a, b) => a.d - b.d);
     for (const it of items) {
       if (it.k === "b") this._drawBuilding(it.r, now);
-      else if (it.k === "t") this._drawTree(it.r);
       else if (it.k === "c") this._drawCar(it.r);
-      else if (it.k === "w") this._drawWalker(it.r, now);
-      else this._drawSign(it.r);
+      else this._drawWalker(it.r, now);
     }
     ctx.restore();
+    for (const d of this.districts) this._drawLabel(d);   // names on top (screen space), always readable
+    ctx.textBaseline = "alphabetic";
     if (!this.result) { ctx.fillStyle = "rgba(30,40,60,.9)"; ctx.font = "600 15px system-ui,sans-serif"; ctx.textAlign = "center"; ctx.fillText("Paste a playlist link to build the city ↑", W / 2, H / 2); }
   }
 
@@ -450,25 +451,18 @@ class CanvasCity {
     const Nt = { x: N.x, y: N.y - h }, Et = { x: E.x, y: E.y - h }, St = { x: S.x, y: S.y - h }, Wt = { x: W.x, y: W.y - h };
     b._poly = [E, S, W, Wt, Nt, Et];
     this._diamond(b.gx + 0.1, b.gy + 0.1, b.f * 1.04, b.f * 1.04, "rgba(18,26,38,.14)"); // contact shadow
-    if (b.ruin) {
-      this._face(E, S, h, "#7c7f88"); this._face(S, W, h, "#62656e");
-      this._quad([Nt, Et, St, Wt], "#9a9da6");
-      if (this._detail) { this._glass(E, S, h, "rr" + b.gx, [45, 55, 56]); this._glass(S, W, h, "rl" + b.gy, [45, 46, 50]); }
-    } else {
-      this._face(E, S, h, colHSL(b.col, -6)); this._face(S, W, h, colHSL(b.col, -16));
-      this._quad([Nt, Et, St, Wt], colHSL(b.col, 9));
-      if (this._detail) {
-        this._glass(E, S, h, b.track.name + "R", b.col); this._glass(S, W, h, b.track.name + "L", b.col);
-        ctx.strokeStyle = colHSL(b.col, -34); ctx.lineWidth = 1;
-        ctx.beginPath(); b._poly.forEach((pt, i) => i ? ctx.lineTo(pt.x, pt.y) : ctx.moveTo(pt.x, pt.y)); ctx.closePath(); ctx.stroke();
-        const seg = (a, z) => { ctx.beginPath(); ctx.moveTo(a.x, a.y); ctx.lineTo(z.x, z.y); ctx.stroke(); };
-        seg(S, St); seg(Et, St); seg(Wt, St);
-        if (p > 0.92) this._roof(b, { x: C.x, y: C.y - h }, Nt, Et, St, Wt, h);
-      }
+    const base = b.ruin ? [220, 6, 52] : b.col;
+    this._face(E, S, h, colHSL(base, -9)); this._face(S, W, h, colHSL(base, -22));
+    this._quad([Nt, Et, St, Wt], colHSL(base, 12));
+    if (this._detail) {
+      this._facade(E, S, h, base); this._facade(S, W, h, base);
+      ctx.strokeStyle = colHSL(base, -32); ctx.lineWidth = 1;            // crisp edges
+      ctx.beginPath(); b._poly.forEach((pt, i) => i ? ctx.lineTo(pt.x, pt.y) : ctx.moveTo(pt.x, pt.y)); ctx.closePath(); ctx.stroke();
+      const seg = (a, z) => { ctx.beginPath(); ctx.moveTo(a.x, a.y); ctx.lineTo(z.x, z.y); ctx.stroke(); };
+      seg(S, St); seg(Et, St); seg(Wt, St);
+      if (!b.ruin && p > 0.92) this._roof(b, { x: C.x, y: C.y - h }, Nt, Et, St, Wt, h);
     }
     if (this.hover === b) { ctx.strokeStyle = "rgba(255,255,255,.95)"; ctx.lineWidth = 2; ctx.beginPath(); b._poly.forEach((pt, i) => i ? ctx.lineTo(pt.x, pt.y) : ctx.moveTo(pt.x, pt.y)); ctx.closePath(); ctx.stroke(); }
-    if (this._detail && b.isTallest && p > 0.92) { ctx.strokeStyle = colHSL(b.accent); ctx.lineWidth = 2; ctx.beginPath(); ctx.moveTo(C.x, Nt.y); ctx.lineTo(C.x, Nt.y - 18 * this.scale); ctx.stroke(); ctx.fillStyle = colHSL(b.accent, (Math.floor(now / 500) % 2) ? 8 : -22); ctx.beginPath(); ctx.arc(C.x, Nt.y - 20 * this.scale, 3.2, 0, 7); ctx.fill(); }
-    if (this._detail && p > 0.85) { ctx.fillStyle = "#13203a"; ctx.font = `700 ${Math.round(11 * Math.max(0.85, this.scale))}px system-ui,sans-serif`; ctx.textAlign = "center"; ctx.fillText(short(b.track.play_count), C.x, Nt.y - 24 * this.scale); }
   }
 
   _roof(b, apex0, Nt, Et, St, Wt, topElev) {
@@ -522,12 +516,21 @@ class CanvasCity {
   }
   _rr(x, y, w, h, r) { const c = this.ctx; c.beginPath(); c.moveTo(x + r, y); c.arcTo(x + w, y, x + w, y + h, r); c.arcTo(x + w, y + h, x, y + h, r); c.arcTo(x, y + h, x, y, r); c.arcTo(x, y, x + w, y, r); c.closePath(); }
 
-  _drawSign(s) {
-    const ctx = this.ctx, g = this.iso(s.gx, s.gy), sc = this.scale;
-    ctx.font = `600 ${Math.round(11 * Math.max(0.95, sc))}px system-ui,sans-serif`; ctx.textAlign = "center";
-    const tw = ctx.measureText(s.text).width, y = g.y - 28 * sc;
-    ctx.fillStyle = "rgba(255,255,255,.92)"; this._rr(g.x - tw / 2 - 8, y, tw + 16, 18 * sc, 9 * sc); ctx.fill();
-    ctx.fillStyle = colHSL(s.accent); ctx.fillText(s.text, g.x, y + 12.5 * sc);
+  _drawLabel(d) {
+    // drawn in SCREEN space (after the world transform) so it stays a constant,
+    // readable size and always sits on top — clear district ownership
+    const ctx = this.ctx, wpt = this.iso(d.ox + d.spanX / 2, d.oy + d.spanY / 2);
+    const sx = this.panX + wpt.x * this.zoom;
+    const sy = this.panY + (wpt.y - (d._maxH || 0) - 14 * this.scale) * this.zoom;
+    if (sx < -80 || sx > this.W + 80 || sy < -10 || sy > this.H + 10) return;
+    const text = d.named ? d.artist : "Downtown";
+    ctx.font = "600 13px system-ui,sans-serif"; ctx.textAlign = "left"; ctx.textBaseline = "middle";
+    const sw = 10, pad = 7, gap = 6, tw = ctx.measureText(text).width;
+    const bw = sw + gap + tw + pad * 2, bh = 22, x0 = Math.round(sx - bw / 2), y0 = Math.round(sy - bh / 2);
+    ctx.fillStyle = "rgba(255,255,255,.95)"; this._rr(x0, y0, bw, bh, 7); ctx.fill();
+    ctx.strokeStyle = "rgba(20,30,50,.14)"; ctx.lineWidth = 1; ctx.stroke();
+    ctx.fillStyle = colHSL(d.theme.base, -6); this._rr(x0 + pad, y0 + (bh - sw) / 2, sw, sw, 2); ctx.fill();
+    ctx.fillStyle = "#1d2740"; ctx.fillText(text, x0 + pad + sw + gap, y0 + bh / 2 + 0.5);
   }
 
   _stepCar(c, dt) {
