@@ -36,33 +36,25 @@ def test_mock_playlist():
 
 
 class _FakeClient:
-    """Stands in for SpotifyClient so we can test orchestration offline."""
-
-    def __init__(self):
-        self.album_calls = []
+    """Stands in for SpotifyClient; the playlist already carries play counts."""
 
     def fetch_playlist(self, playlist_id):
         return PlaylistData(
             name="Test PL",
             tracks=[
-                TrackCount("a", "X", None, "t1", "al1"),
-                TrackCount("b", "X", None, "t2", "al1"),  # same album as t1
-                TrackCount("c", "Y", None, "t3", "al2"),
+                TrackCount("a", "X", 100, "t1", "al1"),
+                TrackCount("b", "X", 200, "t2", "al1"),
+                TrackCount("c", "Y", None, "t3", "al2"),  # missing count -> partial
             ],
         )
 
-    def album_play_counts(self, album_id):
-        self.album_calls.append(album_id)
-        return {"al1": {"t1": 100, "t2": 200}, "al2": {"t3": 5}}[album_id]
 
-
-def test_spotify_provider_dedupes_albums_and_aggregates():
-    fake = _FakeClient()
-    r = SpotifyProvider(client=fake).get_streams("playlist", "pid")
-    assert r.total_streams == 305
-    assert r.tracks_missing == 0
-    # Two distinct albums -> two album fetches, not three (dedupe by album).
-    assert sorted(fake.album_calls) == ["al1", "al2"]
+def test_spotify_provider_aggregates_playlist():
+    r = SpotifyProvider(client=_FakeClient()).get_streams("playlist", "pid")
+    assert r.total_streams == 300
+    assert r.tracks_counted == 2
+    assert r.tracks_missing == 1
+    assert r.partial is True
 
 
 def test_spotify_provider_rejects_non_playlist():

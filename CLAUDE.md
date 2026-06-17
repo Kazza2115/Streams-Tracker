@@ -42,11 +42,11 @@ Keep `StreamResult`'s shape stable — the template depends on it (additive fiel
 
 ## What "playlist total" means (phase-1 scope)
 Spotify exposes **no** playlist-level stream counter. The obtainable number is the
-**sum of each track's all-time play count**. Playlist items carry no count, so
-`SpotifyProvider` fetches the playlist's tracks, then resolves counts by **fetching each
-distinct album once** (`getAlbum` returns per-track `playcount`) — fewer calls on the
-fragile endpoint, and album-sibling counts come for free. Tracks whose count can't be
-resolved are excluded and the result is flagged `partial`.
+**sum of each track's all-time play count**. The pathfinder v2 `fetchPlaylistContents`
+operation returns each track's `playcount` directly (in `itemV2.data.playcount`), so
+`SpotifyProvider` just fetches the playlist (paginated) and sums — no per-album lookup
+needed. Tracks whose count is missing are excluded and the result is flagged `partial`.
+(`getAlbum`/`album_play_counts`, using `tracksV2`, is kept for future album entities.)
 
 ## Current state
 - **Works and tested** (offline, via `MockProvider` + a fake Spotify client): URL/URI

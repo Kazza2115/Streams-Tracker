@@ -144,9 +144,9 @@ class MockProvider(StreamProvider):
 class SpotifyProvider(StreamProvider):
     """Real counts via Spotify's internal endpoint (fragile, unverified in CI).
 
-    All endpoint access is delegated to spotify_client — this class only
-    orchestrates: fetch playlist items, look up per-track play counts (batched
-    by album to minimize calls), then aggregate.
+    All endpoint access is delegated to spotify_client. The playlist endpoint
+    (`fetchPlaylistContents`) already returns each track's play count, so this
+    class just fetches the playlist and aggregates — no per-album lookup needed.
     """
 
     name = "spotify"
@@ -165,38 +165,15 @@ class SpotifyProvider(StreamProvider):
             raise NotImplementedError(
                 f"SpotifyProvider phase-1 supports playlists only (got {entity_type!r})."
             )
-        playlist = self.client.fetch_playlist(entity_id)   # name + track stubs
-        tracks = self._resolve_play_counts(playlist.tracks)
+        playlist = self.client.fetch_playlist(entity_id)   # tracks already carry counts
         return aggregate_tracks(
             entity_type="playlist",
             entity_name=playlist.name,
             entity_id=entity_id,
             source=self.name,
-            tracks=tracks,
+            tracks=playlist.tracks,
             url=f"https://open.spotify.com/playlist/{entity_id}",
         )
-
-    def _resolve_play_counts(self, stubs: list[TrackCount]) -> list[TrackCount]:
-        """Fill in play counts by fetching each distinct album exactly once."""
-        album_ids = {s.album_id for s in stubs if s.album_id}
-        counts: dict[str, int] = {}
-        for album_id in album_ids:
-            try:
-                counts.update(self.client.album_play_counts(album_id))
-            except Exception:
-                # Leave those tracks uncounted rather than fail the whole total;
-                # aggregate_tracks will mark the result partial.
-                continue
-        return [
-            TrackCount(
-                name=s.name,
-                artists=s.artists,
-                play_count=counts.get(s.track_id),
-                track_id=s.track_id,
-                album_id=s.album_id,
-            )
-            for s in stubs
-        ]
 
 
 class SongstatsProvider(StreamProvider):

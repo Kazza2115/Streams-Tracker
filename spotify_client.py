@@ -160,12 +160,13 @@ class SpotifyClient:
 
     # --- high-level reads ---------------------------------------------------
     def fetch_playlist(self, playlist_id: str) -> PlaylistData:
-        """Return the playlist name + track stubs (no counts yet), paginated."""
+        """Return the playlist name + tracks, paginated. fetchPlaylistContents
+        already carries each track's `playcount`, so no album lookup is needed."""
         from providers import TrackCount  # local import avoids an import cycle
 
         uri = f"spotify:playlist:{playlist_id}"
         name = ""
-        stubs: list = []
+        tracks: list = []
         offset = 0
         while True:
             data = self._query("fetchPlaylist", {"uri": uri, "offset": offset, "limit": PLAYLIST_PAGE_SIZE, "includeEpisodeContentRatingsV2": True})
@@ -174,25 +175,28 @@ class SpotifyClient:
             content = pl.get("content") or {}
             items = content.get("items") or []
             for it in items:
-                td = (((it or {}).get("itemV2") or it.get("item") or {}).get("data")) or {}
+                td = (((it or {}).get("itemV2") or {}).get("data")) or {}
                 if td.get("__typename") not in (None, "Track"):
                     continue  # skip episodes / local / unavailable items
                 artists = ", ".join(
                     a.get("profile", {}).get("name", "")
                     for a in (td.get("artists") or {}).get("items", [])
                 ) or "Unknown"
-                stubs.append(
+                try:
+                    play_count = int(td.get("playcount"))
+                except (TypeError, ValueError):
+                    play_count = None          # count unavailable -> excluded, flagged partial
+                tracks.append(
                     TrackCount(
-                        name=td.get("name", "Unknown"), artists=artists, play_count=None,
+                        name=td.get("name", "Unknown"), artists=artists, play_count=play_count,
                         track_id=_id_from_uri(td.get("uri", "")),
                         album_id=_id_from_uri((td.get("albumOfTrack") or {}).get("uri", "")) or None,
                     )
                 )
-            total = content.get("totalCount") or 0
             offset += PLAYLIST_PAGE_SIZE
-            if not items or offset >= total:
-                break
-        return PlaylistData(name=name, tracks=stubs)
+            if not items or len(items) < PLAYLIST_PAGE_SIZE:
+                break  # short page => last page (works without relying on totalCount)
+        return PlaylistData(name=name, tracks=tracks)
 
     def album_play_counts(self, album_id: str) -> dict:
         """Map track_id -> play_count for every track on an album, paginated."""
@@ -202,7 +206,7 @@ class SpotifyClient:
         while True:
             data = self._query("getAlbum", {"uri": uri, "locale": LOCALE, "offset": offset, "limit": ALBUM_PAGE_SIZE})
             album = data.get("albumUnion") or data.get("album") or {}
-            tracks = album.get("tracks") or {}
+            tracks = album.get("tracksV2") or album.get("tracks") or {}
             items = tracks.get("items") or []
             for it in items:
                 tr = (it or {}).get("track") or {}
@@ -213,9 +217,8 @@ class SpotifyClient:
                         counts[tid] = int(pc)
                     except (TypeError, ValueError):
                         pass
-            total = tracks.get("totalCount") or 0
             offset += ALBUM_PAGE_SIZE
-            if not items or offset >= total:
+            if not items or len(items) < ALBUM_PAGE_SIZE:
                 break
         return counts
 
