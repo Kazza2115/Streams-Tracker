@@ -25,8 +25,12 @@ If pathfinder returns HTTP 400, a hash/op name has rotated — recapture and upd
 """
 from __future__ import annotations
 
+import base64
+import hashlib
+import hmac
 import json
 import os
+import struct
 import time
 from dataclasses import dataclass
 from typing import Optional
@@ -37,6 +41,13 @@ import requests
 TOKEN_URL = os.getenv("SP_TOKEN_URL", "https://open.spotify.com/get_access_token")
 TOKEN_PARAMS = {"reason": "transport", "productType": "web-player"}
 PATHFINDER_URL = os.getenv("SP_PATHFINDER_URL", "https://api-partner.spotify.com/pathfinder/v2/query")
+# Automatic auth: exchange the sp_dc cookie for a token (TOTP) and grant a
+# client-token. All version-specific bits are env-overridable (they rotate).
+CLIENTTOKEN_URL = os.getenv("SP_CLIENTTOKEN_URL", "https://clienttoken.spotify.com/v1/clienttoken")
+CLIENT_ID = os.getenv("SP_CLIENT_ID", "d8a5ed958d274c2e8ee717e6a4b0971d")
+CLIENT_VERSION = os.getenv("SP_CLIENT_VERSION", "1.2.93.309.ga193fd34")
+TOTP_VER = os.getenv("SP_TOTP_VER", "5")
+TOTP_CIPHER = os.getenv("SP_TOTP_CIPHER", "12,56,76,33,88,44,88,33,78,78,11,66,22,22,55,69,54")
 USER_AGENT = (
     "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
     "(KHTML, like Gecko) Chrome/123.0 Safari/537.36"
@@ -75,10 +86,12 @@ class SpotifyClient:
             )
         self._sp_dc = sp_dc
         self._hashes = {**QUERY_HASHES, **(hashes or {})}
-        self._client_token = client_token
-        self._static_token = access_token  # if set, used directly (e.g. a captured token)
+        self._ct_manual = client_token       # SP_CLIENT_TOKEN override (else auto-granted)
+        self._static_token = access_token     # SP_ACCESS_TOKEN override (else auto via TOTP)
         self._token: Optional[str] = None
         self._token_expiry_ms: int = 0
+        self._ct_value: Optional[str] = None
+        self._ct_expiry: float = 0.0
         self._session = requests.Session()
         self._session.headers.update(
             {"User-Agent": USER_AGENT, "App-Platform": "WebPlayer", "Accept": "application/json"}
@@ -94,32 +107,59 @@ class SpotifyClient:
 
     # --- auth ---------------------------------------------------------------
     def _access_token(self) -> str:
-        if self._static_token:           # a directly-supplied bearer token (expires ~1h)
+        if self._static_token:           # manual SP_ACCESS_TOKEN override (expires ~1h)
             return self._static_token
         now_ms = int(time.time() * 1000)
         if self._token and now_ms < self._token_expiry_ms - 30_000:
             return self._token
+        if not self._sp_dc:
+            raise SpotifyError("Need SP_DC (cookie) to auto-generate a token, or set SP_ACCESS_TOKEN.")
+        ts = int(time.time())
         try:
-            r = self._session.get(
-                TOKEN_URL, params=TOKEN_PARAMS,
-                headers={"Cookie": f"sp_dc={self._sp_dc}"}, timeout=15,
-            )
+            otp = _totp(_totp_secret(), ts)
+        except Exception as e:
+            raise SpotifyError(f"TOTP computation failed: {e}") from e
+        params = {**TOKEN_PARAMS, "totp": otp, "totpVer": TOTP_VER, "ts": ts}
+        try:
+            r = self._session.get(TOKEN_URL, params=params, headers={"Cookie": f"sp_dc={self._sp_dc}"}, timeout=15)
         except requests.RequestException as e:
             raise SpotifyError(f"Could not reach Spotify token endpoint: {e}") from e
         if r.status_code != 200:
-            raise SpotifyError(
-                f"Token endpoint returned HTTP {r.status_code}; the sp_dc cookie "
-                "may be invalid/expired, or the token now requires a TOTP param."
-            )
+            raise SpotifyError(f"Token endpoint HTTP {r.status_code}; sp_dc invalid/expired or TOTP rejected.")
         data = r.json()
         if data.get("isAnonymous", True) or not data.get("accessToken"):
             raise SpotifyError(
-                "Spotify treated the session as anonymous — the sp_dc cookie is "
-                "invalid/expired, or a TOTP is now required for the token."
+                "Token came back anonymous — the TOTP secret/version is likely outdated "
+                "(update SP_TOTP_CIPHER / SP_TOTP_VER), or set SP_ACCESS_TOKEN as a fallback."
             )
         self._token = data["accessToken"]
         self._token_expiry_ms = int(data.get("accessTokenExpirationTimestampMs", now_ms + 3_000_000))
         return self._token
+
+    def _client_token(self) -> str:
+        if self._ct_manual:              # manual SP_CLIENT_TOKEN override
+            return self._ct_manual
+        now = time.time()
+        if self._ct_value and now < self._ct_expiry - 60:
+            return self._ct_value
+        body = {
+            "client_data": {
+                "client_version": CLIENT_VERSION, "client_id": CLIENT_ID,
+                "js_sdk_data": {"device_brand": "unknown", "device_model": "unknown",
+                                "os": "windows", "os_version": "NT 10.0", "device_id": "", "device_type": "computer"},
+            }
+        }
+        try:
+            r = self._session.post(CLIENTTOKEN_URL, json=body, headers={"Accept": "application/json"}, timeout=15)
+            gt = (r.json() or {}).get("granted_token") or {}
+            tok = gt.get("token")
+            if tok:
+                self._ct_value = tok
+                self._ct_expiry = now + (gt.get("refresh_after_seconds") or 1200)
+                return tok
+        except requests.RequestException:
+            pass
+        return ""   # fall through; pathfinder will surface a clear 401/403 if it was required
 
     # --- pathfinder v2 (POST) ----------------------------------------------
     def _query(self, op_key: str, variables: dict) -> dict:
@@ -138,8 +178,9 @@ class SpotifyClient:
         if tok.lower().startswith("bearer "):
             tok = tok[7:].strip()           # tolerate a pasted "Bearer …" value
         headers = {"Authorization": f"Bearer {tok}", "Content-Type": "application/json", "Accept-Language": "en"}
-        if self._client_token:
-            headers["client-token"] = self._client_token.strip()
+        ct = self._client_token()
+        if ct:
+            headers["client-token"] = ct.strip()
         try:
             r = self._session.post(PATHFINDER_URL, data=json.dumps(body), headers=headers, timeout=25)
         except requests.RequestException as e:
@@ -225,6 +266,25 @@ class SpotifyClient:
             if not items or len(items) < ALBUM_PAGE_SIZE:
                 break
         return counts
+
+
+def _totp_secret() -> str:
+    """Derive the web player's TOTP secret (base32) from the cipher array."""
+    cipher = [int(x) for x in TOTP_CIPHER.split(",") if x.strip()]
+    transformed = [b ^ ((i % 33) + 9) for i, b in enumerate(cipher)]
+    data = "".join(str(t) for t in transformed).encode("ascii")
+    return base64.b32encode(data).decode().rstrip("=")
+
+
+def _totp(secret_b32: str, for_time: int) -> str:
+    """RFC-6238 TOTP (SHA1, 30s, 6 digits) over the given unix time."""
+    pad = "=" * ((8 - len(secret_b32) % 8) % 8)
+    key = base64.b32decode(secret_b32 + pad)
+    counter = struct.pack(">Q", int(for_time) // 30)
+    digest = hmac.new(key, counter, hashlib.sha1).digest()
+    off = digest[-1] & 0x0F
+    code = (struct.unpack(">I", digest[off:off + 4])[0] & 0x7FFFFFFF) % 1_000_000
+    return f"{code:06d}"
 
 
 def _id_from_uri(uri: str) -> str:

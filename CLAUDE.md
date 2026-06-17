@@ -57,13 +57,15 @@ needed. Tracks whose count is missing are excluded and the result is flagged `pa
   running `SOURCE=spotify` with a valid `SP_DC` + hashes maps a real playlist.
   The visualization is offline-proven via mock; only the live Spotify fetch is
   unverified (next bullet).
-- **Implemented but not verified against live Spotify:** `SpotifyProvider` playlist path
-  and `spotify_client`. Spotify moved to **pathfinder v2** (HTTP POST, body carries
-  `operationName`/`variables`/`sha256Hash`); the client now POSTs to v2 and supports an
-  optional `client-token` header. Needs `SP_DC` + current hashes (`SP_HASH_FETCH_PLAYLIST`,
-  `SP_HASH_GET_ALBUM`), possibly `SP_CLIENT_TOKEN` and `SP_OP_*` (op names), all overridable
-  via env. Token exchange may now require a TOTP param. Response-shape parsing is best-effort
-  and may need adjustment after a live capture.
+- **Verified live (playlist path):** against real Spotify via **pathfinder v2**
+  (HTTP POST; body carries `operationName`/`variables`/`sha256Hash`). `fetchPlaylistContents`
+  returns per-track `playcount` directly. Confirmed working on Render with manually
+  captured `SP_ACCESS_TOKEN` + `SP_CLIENT_TOKEN`.
+- **Automatic auth (added, less battle-tested):** from `SP_DC` the client computes the
+  web player's **TOTP** to mint an access token and **grants a client-token** itself, so
+  `SP_DC` alone should suffice. Everything volatile is env-overridable: `SP_TOTP_CIPHER`/
+  `SP_TOTP_VER` (token comes back "anonymous"), `SP_HASH_*`/`SP_OP_*` (HTTP 400), and the
+  manual `SP_ACCESS_TOKEN`/`SP_CLIENT_TOKEN` remain as fallbacks.
 - **Not done yet:** album & artist entities, and `SongstatsProvider` (phase-2 stub,
   raises `NotImplementedError`).
 

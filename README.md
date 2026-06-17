@@ -57,46 +57,40 @@ network access to Spotify is assumed (CI doesn't have it).
 
 ## Using the real Spotify source
 
-The Spotify path is **implemented but not yet verified against live Spotify**.
-It needs two things from your logged-in web session, supplied via env vars
-(never hardcoded):
+Spotify uses **pathfinder v2** (POST). The query hashes are baked into
+`spotify_client.py`, and the app authenticates **automatically** from your
+`sp_dc` cookie: it computes the web player's TOTP to mint an access token and
+grants a `client-token` itself. So normally you only need one secret:
 
-1. **`SP_DC`** — the `sp_dc` cookie. In a browser logged into
-   open.spotify.com: DevTools → Application → Cookies → copy the `sp_dc` value.
-2. **Persisted-query hashes** — these rotate. DevTools → Network → filter
-   `pathfinder` while loading a playlist/album, open a request, and copy
-   `extensions.persistedQuery.sha256Hash`:
-   - `fetchPlaylist` → `SP_HASH_FETCH_PLAYLIST`
-   - `getAlbum` → `SP_HASH_GET_ALBUM`
-
-If pathfinder starts returning HTTP 400, the hashes have rotated — recapture them.
-
-Then:
+- **`SP_DC`** — the `sp_dc` cookie. In a browser logged into open.spotify.com:
+  DevTools → Application → Cookies → copy the `sp_dc` value. (Long-lived ~1 year.)
 
 ```bash
-SOURCE=spotify SP_DC="…" SP_HASH_FETCH_PLAYLIST="…" SP_HASH_GET_ALBUM="…" python app.py
+SOURCE=spotify SP_DC="…" python app.py
 ```
 
 open <http://localhost:5000>, paste **your** playlist link, and the city is built
 from real per-track counts. (GitHub Pages can only ever show the mock demo — real
-counts require this server, which is why you run it locally.) Large playlists can
-take a while: counts are resolved by fetching each distinct album once.
+counts require this server.)
+
+Fallbacks / overrides (env, all optional):
+- `SP_ACCESS_TOKEN`, `SP_CLIENT_TOKEN` — captured tokens to use directly (bypass
+  auto-auth; the bearer expires ~1h). Handy if the TOTP step breaks.
+- `SP_TOTP_CIPHER`, `SP_TOTP_VER` — update if the token comes back "anonymous"
+  (the TOTP secret/version rotated).
+- `SP_HASH_FETCH_PLAYLIST` / `SP_OP_FETCH_PLAYLIST` — update if pathfinder returns
+  HTTP 400 (the persisted-query hash or operation name rotated).
 
 ## Deploy to Render (hosted, public URL)
 
-A [`render.yaml`](render.yaml) blueprint is included. The three Spotify secrets
-are marked `sync: false`, so Render prompts for them in the dashboard — they are
-never committed.
+A [`render.yaml`](render.yaml) blueprint is included. Secrets are marked
+`sync: false`, so Render prompts for them in the dashboard — never committed.
 
 1. Sign up at <https://render.com> (free) and connect your GitHub.
 2. **New → Blueprint**, pick this repo and the `claude/laughing-rubin-fm8819`
    branch. Render reads `render.yaml`.
-3. When prompted, enter the auth secrets. The persisted-query hashes are baked
-   into `spotify_client.py`, so you only need auth. Spotify uses **pathfinder v2**,
-   whose token step often needs TOTP/`client-token`; the simplest first test is to
-   paste a **captured bearer token** (`SP_ACCESS_TOKEN`) and **client-token**
-   (`SP_CLIENT_TOKEN`) from a `pathfinder/v2/query` request's headers (these expire
-   in ~1h — fine to validate the pipeline). `SP_DC` is the alternative cookie path.
+3. Enter **`SP_DC`** (your cookie). Leave `SP_ACCESS_TOKEN` / `SP_CLIENT_TOKEN`
+   blank to use automatic auth (set them only as a fallback if auto-auth fails).
 4. Apply / deploy, wait for the build, then open the service URL and paste a
    playlist.
 
